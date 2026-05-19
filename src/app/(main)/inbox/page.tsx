@@ -61,8 +61,8 @@ export default function InboxPage() {
   const markEdited = useMutation(api.aiProactive.markEdited);
 
   const grouped = useMemo(() => {
-    if (!suggestions) return new Map<string, typeof suggestions>();
-    const groups = new Map<string, typeof suggestions>();
+    const groups = new Map<string, NonNullable<typeof suggestions>>();
+    if (!suggestions) return groups;
     for (const s of suggestions) {
       const k = s.projectName ?? "Org-level";
       const arr = groups.get(k) ?? [];

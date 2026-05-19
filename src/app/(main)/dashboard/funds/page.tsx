@@ -534,7 +534,7 @@ function MultiYearPlanning() {
           <tfoot className="bg-muted/40 border-t-2">
             <tr>
               <td className="px-4 py-3 font-bold text-sm sticky left-0 bg-muted/40 z-10 border-r">Total</td>
-              {matrix.totalsByFy.map((t) => (
+              {matrix.totalsByFy?.map((t) => (
                 <td key={t.fy} className="px-3 py-3 text-right">
                   <div className="font-bold text-sm font-mono">{fmtINR(t.target)}</div>
                   <div className="text-[10px] text-muted-foreground mt-0.5">

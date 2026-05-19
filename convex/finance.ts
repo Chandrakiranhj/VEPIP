@@ -277,7 +277,7 @@ export const getMultiYearTargetMatrix = query({
     const fromStart = parseInt(fromFy.split("-")[0], 10);
     const toStart = parseInt(toFy.split("-")[0], 10);
     if (Number.isNaN(fromStart) || Number.isNaN(toStart) || toStart < fromStart) {
-      return { fiscalYears: [], states: [], targets: [], coverage: [] };
+      return { fiscalYears: [], states: [], targets: [], totalsByFy: [] };
     }
     const fiscalYears: string[] = [];
     for (let y = fromStart; y <= toStart; y++) {
