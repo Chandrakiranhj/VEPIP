@@ -173,6 +173,32 @@ export const createFromAiDraft = mutation({
       updatedAt: now,
     });
 
+    // ── 1. Phases first (deliverables/milestones/line items may reference them)
+    const phaseIdByCode = new Map<string, Id<"projectPhases">>();
+    let phaseOrder = 0;
+    for (const ph of draft.phases ?? []) {
+      const order = typeof ph.order === "number" ? ph.order : phaseOrder++;
+      const id = await ctx.db.insert("projectPhases", {
+        projectId,
+        code: ph.code ?? undefined,
+        name: ph.name ?? `Phase ${order + 1}`,
+        description: ph.description ?? undefined,
+        startDate: ph.startDate ?? undefined,
+        endDate: ph.endDate ?? undefined,
+        states: Array.isArray(ph.states) ? ph.states : undefined,
+        status: "not_started",
+        order,
+        createdAt: now,
+      });
+      if (ph.code) phaseIdByCode.set(String(ph.code), id);
+    }
+
+    const resolvePhase = (code?: unknown): Id<"projectPhases"> | undefined => {
+      if (!code) return undefined;
+      return phaseIdByCode.get(String(code)) ?? undefined;
+    };
+
+    // ── 2. Deliverables
     for (const item of draft.deliverables ?? []) {
       await ctx.db.insert("deliverables", {
         projectId,
@@ -186,6 +212,7 @@ export const createFromAiDraft = mutation({
       });
     }
 
+    // ── 3. Milestones
     for (const ms of draft.milestones ?? []) {
       await ctx.db.insert("milestones", {
         projectId,
@@ -195,15 +222,161 @@ export const createFromAiDraft = mutation({
       });
     }
 
+    // ── 4. Budget categories (keyed by name so line items can link)
+    const categoryIdByName = new Map<string, Id<"budgetCategories">>();
     for (const category of draft.budgetCategories ?? []) {
-      await ctx.db.insert("budgetCategories", {
+      const name = category.name ?? "General";
+      const id = await ctx.db.insert("budgetCategories", {
         projectId,
-        name: category.name ?? "General",
+        name,
         approvedAmount: Number(category.amount ?? 0),
         spentAmount: 0,
       });
+      categoryIdByName.set(name.toLowerCase().trim(), id);
     }
 
+    // ── 5. Budget line items
+    for (const li of draft.budgetLineItems ?? []) {
+      const catName = String(li.categoryName ?? "").toLowerCase().trim();
+      await ctx.db.insert("budgetLineItems", {
+        projectId,
+        categoryId: catName ? categoryIdByName.get(catName) : undefined,
+        phaseId: resolvePhase(li.phaseCode),
+        state: li.state ?? undefined,
+        name: li.name ?? "Untitled line item",
+        description: li.description ?? undefined,
+        subCategory: li.subCategory ?? undefined,
+        unitCost: typeof li.unitCost === "number" ? li.unitCost : undefined,
+        units: typeof li.units === "number" ? li.units : undefined,
+        months: typeof li.months === "number" ? li.months : undefined,
+        totalCost: Number(li.totalCost ?? 0),
+        partnerContribution: typeof li.partnerContribution === "number" ? li.partnerContribution : undefined,
+        inKindContribution: typeof li.inKindContribution === "number" ? li.inKindContribution : undefined,
+        recurring: typeof li.recurring === "boolean" ? li.recurring : undefined,
+        notes: li.notes ?? undefined,
+        createdAt: now,
+      });
+    }
+
+    // ── 6. Payment tranches
+    for (const t of draft.paymentTranches ?? []) {
+      await ctx.db.insert("paymentTranches", {
+        projectId,
+        tranche: Number(t.tranche ?? 0),
+        amount: Number(t.amount ?? 0),
+        plannedDate: t.plannedDate ?? undefined,
+        triggerCondition: t.triggerCondition ?? undefined,
+        requiredDocs: Array.isArray(t.requiredDocs) ? t.requiredDocs.map(String) : undefined,
+        status: "planned",
+        notes: t.notes ?? undefined,
+        createdAt: now,
+      });
+    }
+
+    // ── 7. Documents observed
+    for (const d of draft.documents ?? []) {
+      const kind = ["proposal", "mou", "grant_agreement", "annexure", "approval", "budget", "impact_sheet", "other"].includes(d.kind)
+        ? d.kind
+        : "other";
+      const status = ["draft", "under_review", "signed", "active", "closed"].includes(d.status)
+        ? d.status
+        : "draft";
+      await ctx.db.insert("projectDocuments", {
+        projectId,
+        kind,
+        name: d.name ?? "Untitled document",
+        version: d.version ?? undefined,
+        status,
+        issueDate: d.issueDate ?? undefined,
+        effectiveDate: d.effectiveDate ?? undefined,
+        expiryDate: d.expiryDate ?? undefined,
+        notes: d.notes ?? undefined,
+        createdAt: now,
+      });
+    }
+
+    // ── 8. Parties
+    for (const p of draft.parties ?? []) {
+      const validKinds = ["funder", "implementer", "consortium_partner", "research_partner", "content_partner", "evaluator", "outreach_partner", "govt_department", "signatory", "other"] as const;
+      const kind = validKinds.includes(p.kind) ? p.kind : "other";
+      await ctx.db.insert("projectParties", {
+        projectId,
+        kind,
+        name: p.name ?? "Unknown party",
+        role: p.role ?? undefined,
+        contactName: p.contactName ?? undefined,
+        contactEmail: p.contactEmail ?? undefined,
+        notes: p.notes ?? undefined,
+        createdAt: now,
+      });
+    }
+
+    // ── 9. KPIs
+    for (const k of draft.kpis ?? []) {
+      await ctx.db.insert("kpiIndicators", {
+        projectId,
+        kind: k.kind === "outcome" ? "outcome" : "output",
+        title: k.title ?? "Untitled indicator",
+        unit: k.unit ?? undefined,
+        baseline: typeof k.baseline === "number" ? k.baseline : undefined,
+        target: typeof k.target === "number" ? k.target : undefined,
+        achieved: 0,
+        frequency: k.frequency ?? undefined,
+        dataSource: k.dataSource ?? undefined,
+        collectionOwner: k.collectionOwner ?? undefined,
+        reportingTemplate: k.reportingTemplate ?? undefined,
+        notes: k.notes ?? undefined,
+        createdAt: now,
+      });
+    }
+
+    // ── 10. Compliance obligations
+    for (const c of draft.compliance ?? []) {
+      const validKinds = ["reporting", "audit", "visibility_branding", "ip_content", "data_privacy", "procurement", "termination", "amendment", "indemnity", "governing_law", "other"] as const;
+      const kind = validKinds.includes(c.kind) ? c.kind : "other";
+      await ctx.db.insert("complianceObligations", {
+        projectId,
+        kind,
+        title: c.title ?? "Untitled obligation",
+        text: c.text ?? undefined,
+        frequency: c.frequency ?? undefined,
+        dueDate: c.dueDate ?? undefined,
+        status: "active",
+        notes: c.notes ?? undefined,
+        createdAt: now,
+      });
+    }
+
+    // ── 11. Approvals
+    for (const a of draft.approvals ?? []) {
+      await ctx.db.insert("projectApprovals", {
+        projectId,
+        state: a.state ?? undefined,
+        department: a.department ?? undefined,
+        title: a.title ?? "Untitled approval",
+        status: "not_started",
+        notes: a.notes ?? undefined,
+        createdAt: now,
+      });
+    }
+
+    // ── 12. Risks
+    for (const r of draft.risks ?? []) {
+      const severity = ["low", "medium", "high"].includes(r.severity) ? r.severity : "medium";
+      const likelihood = ["low", "medium", "high"].includes(r.likelihood) ? r.likelihood : undefined;
+      await ctx.db.insert("projectRisks", {
+        projectId,
+        title: r.title ?? "Untitled risk",
+        description: r.description ?? undefined,
+        severity,
+        likelihood,
+        mitigation: r.mitigation ?? undefined,
+        status: "open",
+        createdAt: now,
+      });
+    }
+
+    // ── 13. Reporting schedule (existing reports table)
     for (const report of draft.reportingSchedule ?? []) {
       await ctx.db.insert("reports", {
         projectId,
@@ -214,9 +387,21 @@ export const createFromAiDraft = mutation({
       });
     }
 
+    // ── 14. Intake gaps (what the AI couldn't resolve from the documents)
+    for (const gap of draft.risksOrAmbiguities ?? []) {
+      const text = typeof gap === "string" ? gap : String(gap?.text ?? "");
+      if (!text.trim()) continue;
+      await ctx.db.insert("intakeGaps", {
+        projectId,
+        severity: "warn",
+        text: text.trim(),
+        resolved: false,
+        createdAt: now,
+      });
+    }
+
     await scheduleProjectIngestion(ctx, projectId);
     return projectId;
-
   },
 });
 

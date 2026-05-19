@@ -208,6 +208,209 @@ export default defineSchema({
     .index("by_state", ["stateId"])
     .index("by_fiscal_year", ["fiscalYear"]),
 
+  // ── Rich project structure (Bosch-grade proposals) ────────────────────────
+  // Every table below is additive and OPTIONAL. A small grant that only has
+  // "log activities + spend the budget" still works with just `projects`,
+  // `deliverables`, `budgetCategories`. These tables fill in for big multi-
+  // phase MoUs that promise specific things across states, phases, and time.
+
+  projectDocuments: defineTable({
+    projectId: v.id("projects"),
+    kind: v.union(
+      v.literal("proposal"),
+      v.literal("mou"),
+      v.literal("grant_agreement"),
+      v.literal("annexure"),
+      v.literal("approval"),
+      v.literal("budget"),
+      v.literal("impact_sheet"),
+      v.literal("other"),
+    ),
+    name: v.string(),
+    version: v.optional(v.string()),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("under_review"),
+      v.literal("signed"),
+      v.literal("active"),
+      v.literal("closed"),
+    ),
+    issueDate: v.optional(v.string()),
+    effectiveDate: v.optional(v.string()),
+    expiryDate: v.optional(v.string()),
+    storageId: v.optional(v.id("_storage")),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
+  projectPhases: defineTable({
+    projectId: v.id("projects"),
+    code: v.optional(v.string()),         // e.g. "1.1", "1.2", "2.0"
+    name: v.string(),
+    description: v.optional(v.string()),
+    startDate: v.optional(v.string()),
+    endDate: v.optional(v.string()),
+    states: v.optional(v.array(v.string())),
+    status: v.union(
+      v.literal("not_started"),
+      v.literal("in_progress"),
+      v.literal("completed"),
+      v.literal("cancelled"),
+    ),
+    order: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
+  projectParties: defineTable({
+    projectId: v.id("projects"),
+    kind: v.union(
+      v.literal("funder"),
+      v.literal("implementer"),
+      v.literal("consortium_partner"),
+      v.literal("research_partner"),
+      v.literal("content_partner"),
+      v.literal("evaluator"),
+      v.literal("outreach_partner"),
+      v.literal("govt_department"),
+      v.literal("signatory"),
+      v.literal("other"),
+    ),
+    name: v.string(),
+    role: v.optional(v.string()),
+    contactName: v.optional(v.string()),
+    contactEmail: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
+  projectApprovals: defineTable({
+    projectId: v.id("projects"),
+    state: v.optional(v.string()),
+    department: v.optional(v.string()),
+    title: v.string(),
+    status: v.union(
+      v.literal("not_started"),
+      v.literal("requested"),
+      v.literal("granted"),
+      v.literal("rejected"),
+      v.literal("not_required"),
+    ),
+    issuedOn: v.optional(v.string()),
+    expiresOn: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
+  budgetLineItems: defineTable({
+    projectId: v.id("projects"),
+    categoryId: v.optional(v.id("budgetCategories")),
+    phaseId: v.optional(v.id("projectPhases")),
+    state: v.optional(v.string()),
+    name: v.string(),
+    description: v.optional(v.string()),
+    subCategory: v.optional(v.string()),     // HR / Equipment / Events / Comms / Admin
+    unitCost: v.optional(v.number()),
+    units: v.optional(v.number()),
+    months: v.optional(v.number()),
+    totalCost: v.number(),
+    partnerContribution: v.optional(v.number()),
+    inKindContribution: v.optional(v.number()),
+    recurring: v.optional(v.boolean()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_category", ["categoryId"])
+    .index("by_phase", ["phaseId"]),
+
+  paymentTranches: defineTable({
+    projectId: v.id("projects"),
+    tranche: v.number(),                     // 1, 2, 3 …
+    amount: v.number(),
+    plannedDate: v.optional(v.string()),
+    triggerCondition: v.optional(v.string()),    // "30% upfront" / "on report submission"
+    requiredDocs: v.optional(v.array(v.string())),
+    status: v.union(
+      v.literal("planned"),
+      v.literal("requested"),
+      v.literal("disbursed"),
+      v.literal("withheld"),
+      v.literal("cancelled"),
+    ),
+    disbursedOn: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_status", ["status"]),
+
+  kpiIndicators: defineTable({
+    projectId: v.id("projects"),
+    kind: v.union(v.literal("output"), v.literal("outcome")),
+    title: v.string(),
+    unit: v.optional(v.string()),            // students / schools / sessions
+    baseline: v.optional(v.number()),
+    target: v.optional(v.number()),
+    achieved: v.optional(v.number()),
+    frequency: v.optional(v.string()),       // monthly / quarterly / annual
+    dataSource: v.optional(v.string()),
+    collectionOwner: v.optional(v.string()),
+    reportingTemplate: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
+  complianceObligations: defineTable({
+    projectId: v.id("projects"),
+    kind: v.union(
+      v.literal("reporting"),
+      v.literal("audit"),
+      v.literal("visibility_branding"),
+      v.literal("ip_content"),
+      v.literal("data_privacy"),
+      v.literal("procurement"),
+      v.literal("termination"),
+      v.literal("amendment"),
+      v.literal("indemnity"),
+      v.literal("governing_law"),
+      v.literal("other"),
+    ),
+    title: v.string(),
+    text: v.optional(v.string()),
+    frequency: v.optional(v.string()),
+    dueDate: v.optional(v.string()),
+    status: v.union(
+      v.literal("active"),
+      v.literal("waived"),
+      v.literal("breached"),
+      v.literal("satisfied"),
+    ),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_kind", ["kind"]),
+
+  projectRisks: defineTable({
+    projectId: v.id("projects"),
+    title: v.string(),
+    description: v.optional(v.string()),
+    severity: v.union(v.literal("low"), v.literal("medium"), v.literal("high")),
+    likelihood: v.optional(v.union(v.literal("low"), v.literal("medium"), v.literal("high"))),
+    mitigation: v.optional(v.string()),
+    ownerId: v.optional(v.id("people")),
+    status: v.union(v.literal("open"), v.literal("mitigated"), v.literal("realised"), v.literal("closed")),
+    createdAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
+  intakeGaps: defineTable({
+    projectId: v.id("projects"),
+    severity: v.union(v.literal("info"), v.literal("warn"), v.literal("critical")),
+    text: v.string(),                          // "End date not specified", "Budget mismatch", etc.
+    resolved: v.boolean(),
+    createdAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
   // Multi-year state-level funding targets. One row per (stateId, fiscalYear).
   // Used by the Multi-Year Planning view to chart 5-7 years of state targets
   // against current project coverage.
