@@ -52,7 +52,22 @@ function extractJsonBlock(raw: string): string | null {
 }
 
 /** Read a SSE response body (LangGraph "messages-tuple" style) and return the
- *  concatenated assistant text. */
+ *  assistant's actual reply text, filtering out title-generation chunks.
+ *
+ *  Bug history: DeerFlow's TitleMiddleware emits a short "thread title"
+ *  alongside the main agent response on the same stream. The previous version
+ *  of this consumer joined every AIMessageChunk it saw, so when the title
+ *  arrived but the main response was incomplete (or got dropped), the result
+ *  was just the title (e.g. "Vepip-Intake: Project Plan Extraction") and the
+ *  JSON parser found nothing.
+ *
+ *  Fix: (a) skip chunks whose metadata.langgraph_node identifies the title
+ *  generator, (b) prefer the LONGEST single-message text instead of joining
+ *  everything (the title is ~30 chars; the JSON response is ~5KB+), (c) fall
+ *  back to concatenating all texts if the longest doesn't contain a JSON
+ *  block. */
+const TITLE_NODE_PATTERNS = /(^|[._-])(title|titling|thread_title)([._-]|$)/i;
+
 async function consumeStream(stream: ReadableStream<Uint8Array>): Promise<string> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -75,19 +90,23 @@ async function consumeStream(stream: ReadableStream<Uint8Array>): Promise<string
       try {
         const parsed = JSON.parse(dataLine);
         // LangGraph "messages-tuple" mode: [message, metadata]
-        if (Array.isArray(parsed) && parsed.length >= 1) {
-          const [msg] = parsed;
-          if (msg && typeof msg === "object" && msg.type === "AIMessageChunk") {
-            const id = String(msg.id ?? "");
-            const content = msg.content;
-            if (typeof content === "string") {
-              aiTextById[id] = (aiTextById[id] ?? "") + content;
-            } else if (Array.isArray(content)) {
-              for (const part of content) {
-                if (part?.type === "text" && typeof part.text === "string") {
-                  aiTextById[id] = (aiTextById[id] ?? "") + part.text;
-                }
-              }
+        if (!Array.isArray(parsed) || parsed.length < 1) continue;
+        const [msg, metadata] = parsed as [Record<string, unknown>, Record<string, unknown> | undefined];
+        if (!msg || typeof msg !== "object" || msg.type !== "AIMessageChunk") continue;
+
+        // Drop chunks the TitleMiddleware emits — they look like AIMessageChunk
+        // but live on a different graph node.
+        const node = String(metadata?.langgraph_node ?? metadata?.node ?? "");
+        if (node && TITLE_NODE_PATTERNS.test(node)) continue;
+
+        const id = String(msg.id ?? "");
+        const content = msg.content;
+        if (typeof content === "string") {
+          aiTextById[id] = (aiTextById[id] ?? "") + content;
+        } else if (Array.isArray(content)) {
+          for (const part of content as Array<{ type?: string; text?: string }>) {
+            if (part?.type === "text" && typeof part.text === "string") {
+              aiTextById[id] = (aiTextById[id] ?? "") + part.text;
             }
           }
         }
@@ -97,7 +116,16 @@ async function consumeStream(stream: ReadableStream<Uint8Array>): Promise<string
     }
   }
 
-  return Object.values(aiTextById).join("\n").trim();
+  const texts = Object.values(aiTextById).filter((t) => t.trim().length > 0);
+  if (texts.length === 0) return "";
+
+  // Prefer the longest single-message text — that's almost always the real
+  // response. A title is short (~30 chars); a structured intake JSON is huge.
+  const longest = texts.slice().sort((a, b) => b.length - a.length)[0].trim();
+  if (longest.includes("{") && longest.includes("}")) return longest;
+
+  // Defensive fallback: JSON might be split across message ids — try the union.
+  return texts.join("\n").trim();
 }
 
 async function callDeerflowIntake(proposalText: string, mouText: string, today: string): Promise<unknown> {
@@ -142,9 +170,25 @@ ${mouText || "(no MOU supplied)"}`;
   const fullText = await consumeStream(runRes.body);
   const jsonStr = extractJsonBlock(fullText);
   if (!jsonStr) {
-    throw new Error(`No JSON block in DeerFlow response. Raw: ${fullText.slice(0, 500)}`);
+    // Surface more of the raw response in the error so the next failure
+    // mode is diagnosable from one server log line.
+    const preview = fullText.slice(0, 800);
+    console.error("[AI Intake] No JSON block in response. Full text length:",
+      fullText.length, "Preview:", preview);
+    throw new Error(
+      `No JSON block in DeerFlow response (${fullText.length} chars). ` +
+      `First 800: ${preview}`,
+    );
   }
-  return JSON.parse(jsonStr);
+  try {
+    return JSON.parse(jsonStr);
+  } catch (err) {
+    console.error("[AI Intake] JSON parse failed. Extracted block:", jsonStr.slice(0, 800));
+    throw new Error(
+      `Found a JSON-like block but it didn't parse. ${(err as Error).message}. ` +
+      `Block preview: ${jsonStr.slice(0, 400)}`,
+    );
+  }
 }
 
 export async function POST(request: Request) {
