@@ -63,6 +63,42 @@ export const ensureCurrentUser = mutation({
   },
 });
 
+export const bootstrapSuperAdmin = mutation({
+  args: {
+    password: v.string(),
+    name: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const bootstrapPassword = process.env.SUPERADMIN_INITIAL_PASSWORD;
+    if (!bootstrapPassword || args.password !== bootstrapPassword) {
+      throw new Error("Invalid superadmin bootstrap password");
+    }
+
+    const email = SUPER_ADMIN_EMAIL;
+    const now = Date.now();
+    const existing = await ctx.db.query("people").withIndex("by_email", (q) => q.eq("email", email)).unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        name: args.name ?? existing.name,
+        role: "admin",
+        tempPassword: args.password,
+        updatedAt: now,
+      });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("people", {
+      name: args.name ?? "Chandrakiran",
+      email,
+      role: "admin",
+      tempPassword: args.password,
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
 export const list = query({
   args: {},
   handler: async (ctx) => {
