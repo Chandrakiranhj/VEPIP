@@ -33,12 +33,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-import { buildManualIntakePrompt } from "@/components/intake/manual-intake-prompt";
+import { MANUAL_INTAKE_PROMPT } from "@/components/intake/manual-intake-prompt";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type AiStage = "upload" | "extracting" | "review" | "saving" | "done";
-type ManualStage = "files" | "prompt" | "paste" | "review" | "saving" | "done";
+type ManualStage = "prompt" | "paste" | "review" | "saving" | "done";
 
 interface Deliverable {
   title: string;
@@ -625,12 +625,7 @@ function ManualIntake({
   createFromAiDraft: ReturnType<typeof useMutation<typeof api.projects.createFromAiDraft>>;
   router: ReturnType<typeof useRouter>;
 }) {
-  const [stage, setStage] = useState<ManualStage>("files");
-  const [proposalFile, setProposalFile] = useState<File | null>(null);
-  const [mouFile, setMouFile] = useState<File | null>(null);
-  const [proposalText, setProposalText] = useState("");
-  const [mouText, setMouText] = useState("");
-  const [extracting, setExtracting] = useState(false);
+  const [stage, setStage] = useState<ManualStage>("prompt");
   const [error, setError] = useState("");
   const [pastedJson, setPastedJson] = useState("");
   const [parseErrors, setParseErrors] = useState<string[]>([]);
@@ -639,43 +634,12 @@ function ManualIntake({
   const [savedProjectId, setSavedProjectId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const prompt = useMemo(
-    () => buildManualIntakePrompt({ proposalText, mouText }),
-    [proposalText, mouText],
-  );
+  const prompt = MANUAL_INTAKE_PROMPT;
 
   function reset() {
-    setStage("files"); setProposalFile(null); setMouFile(null);
-    setProposalText(""); setMouText(""); setExtracting(false);
-    setError(""); setPastedJson(""); setParseErrors([]); setParseWarnings([]);
+    setStage("prompt"); setError("");
+    setPastedJson(""); setParseErrors([]); setParseWarnings([]);
     setDraft(null); setSavedProjectId(null); setCopied(false);
-  }
-
-  async function handleExtractText() {
-    if (!proposalFile && !mouFile && !proposalText && !mouText) return;
-    setExtracting(true); setError("");
-    try {
-      // If the user pasted raw text, skip the server roundtrip.
-      if (!proposalFile && !mouFile && (proposalText || mouText)) {
-        setStage("prompt");
-        return;
-      }
-      const formData = new FormData();
-      if (proposalFile) formData.append("proposal", proposalFile);
-      if (mouFile) formData.append("mou", mouFile);
-      const res = await fetch("/api/ai/extract-text", { method: "POST", body: formData });
-      if (!res.ok) {
-        const t = await res.text(); setError(t); return;
-      }
-      const data = await res.json() as { proposalText?: string; mouText?: string };
-      setProposalText(data.proposalText ?? proposalText);
-      setMouText(data.mouText ?? mouText);
-      setStage("prompt");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Text extraction failed");
-    } finally {
-      setExtracting(false);
-    }
   }
 
   async function copyPrompt() {
@@ -684,7 +648,6 @@ function ManualIntake({
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch {
-      // older browsers — surface a tiny error inline
       setError("Couldn't copy to clipboard. Select the text manually and copy.");
     }
   }
@@ -727,6 +690,9 @@ function ManualIntake({
     return { chars, approxTokens };
   }, [prompt]);
 
+  // (file-upload step removed in this flow — users upload their PDFs
+  // directly into Claude / ChatGPT / Gemini and bring the JSON back)
+
   return (
     <div className="space-y-6">
       {error && (
@@ -739,104 +705,81 @@ function ManualIntake({
       {/* Step indicator */}
       <ManualSteps stage={stage} />
 
-      {/* Step 1 — upload or paste */}
-      {stage === "files" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>1. Provide your documents</CardTitle>
-            <CardDescription>Upload the proposal and MOU files, OR paste their text directly below. Both are optional individually — at least one is required.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Grant Proposal</p>
-                <FileDropZone label="Upload Proposal PDF" hint="The document you submitted to apply" file={proposalFile} onFile={setProposalFile} onClear={() => setProposalFile(null)} />
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">MOU / Agreement</p>
-                <FileDropZone label="Upload MOU PDF" hint="The signed memorandum or grant agreement" file={mouFile} onFile={setMouFile} onClear={() => setMouFile(null)} />
-              </div>
-            </div>
-
-            <details>
-              <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground hover:text-foreground">
-                Or paste text directly (skip file upload)
-              </summary>
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Proposal text</Label>
-                  <Textarea value={proposalText} onChange={(e) => setProposalText(e.target.value)} rows={5} className="text-xs font-mono" placeholder="Paste proposal text…" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">MOU text</Label>
-                  <Textarea value={mouText} onChange={(e) => setMouText(e.target.value)} rows={5} className="text-xs font-mono" placeholder="Paste MOU text…" />
-                </div>
-              </div>
-            </details>
-
-            <Button size="lg" onClick={handleExtractText} disabled={extracting || (!proposalFile && !mouFile && !proposalText && !mouText)}>
-              {extracting ? <Loader2 className="size-4 animate-spin mr-2" /> : <Wand2 className="size-4 mr-2" />}
-              Extract text &amp; build prompt
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Step 2 — prompt to copy */}
+      {/* Step 1 — instructions + copy the universal prompt */}
       {stage === "prompt" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>2. Copy this prompt into your LLM of choice</CardTitle>
-            <CardDescription>
-              The prompt below is complete and self-contained — it ships the full schema, your document text, and strict output rules. Paste it into Claude, ChatGPT, or Gemini. {" "}
-              <span className="text-muted-foreground">{promptStats.chars.toLocaleString()} chars · ~{promptStats.approxTokens.toLocaleString()} tokens</span>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={copyPrompt} size="sm" className="gap-2">
-                {copied ? <CheckCircle2 className="size-4" /> : <ClipboardCopy className="size-4" />}
-                {copied ? "Copied!" : "Copy prompt to clipboard"}
-              </Button>
-              <Button onClick={downloadPrompt} variant="outline" size="sm" className="gap-2">
-                <Download className="size-4" /> Download as .txt
-              </Button>
-              <Button onClick={() => setStage("paste")} variant="secondary" size="sm" className="gap-2">
-                Next: paste the JSON back <ClipboardPaste className="size-4" />
-              </Button>
-            </div>
+        <div className="space-y-4">
+          <Card className="border-primary/30 bg-primary/[0.03]">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="size-5 text-primary" />
+                How to use manual mode
+              </CardTitle>
+              <CardDescription>
+                You'll do the extraction inside Claude, ChatGPT, or Gemini directly. They handle PDFs natively, so there's no need to upload anything here first.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <ol className="space-y-2 list-decimal list-inside marker:font-bold marker:text-primary">
+                <li>Open <a href="https://claude.ai" target="_blank" rel="noreferrer" className="text-primary underline">Claude</a> (best), <a href="https://chat.openai.com" target="_blank" rel="noreferrer" className="text-primary underline">ChatGPT</a>, or <a href="https://gemini.google.com" target="_blank" rel="noreferrer" className="text-primary underline">Gemini</a> in a new chat.</li>
+                <li><strong>Upload every project document</strong> into that chat — Proposal, MOU, Grant Agreement, Budget Annexure, Impact Sheet, School Mapping, Approval Letters, anything you have. The more documents you attach, the more accurate the extraction.</li>
+                <li>Copy the prompt below and paste it as your first message. The prompt is the same every time — it's tuned for Vision Empower's projects and includes strict anti-hallucination rules.</li>
+                <li>Wait for the LLM's response. It will be a single fenced <code className="text-[11px] bg-muted px-1 py-0.5 rounded">```json</code> block.</li>
+                <li>Come back here, hit "Next: paste the JSON back", and paste the model's reply into the textarea.</li>
+              </ol>
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200">
+                <strong>If the model adds prose before or after the JSON</strong> — just say "Reply with ONLY the JSON block, no other text" and the model will retry cleanly.
+              </div>
+            </CardContent>
+          </Card>
 
-            <Textarea
-              value={prompt}
-              readOnly
-              rows={18}
-              className="font-mono text-[11px] bg-muted/30"
-              onFocus={(e) => e.currentTarget.select()}
-            />
+          <Card>
+            <CardHeader className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <div>
+                <CardTitle>The universal Vision Empower intake prompt</CardTitle>
+                <CardDescription>
+                  Copy this and paste it into the LLM (after attaching your files). {" "}
+                  <span className="text-muted-foreground">{promptStats.chars.toLocaleString()} chars · ~{promptStats.approxTokens.toLocaleString()} tokens</span>
+                </CardDescription>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={copyPrompt} size="sm" className="gap-2">
+                  {copied ? <CheckCircle2 className="size-4" /> : <ClipboardCopy className="size-4" />}
+                  {copied ? "Copied!" : "Copy prompt"}
+                </Button>
+                <Button onClick={downloadPrompt} variant="outline" size="sm" className="gap-2">
+                  <Download className="size-4" /> Download .txt
+                </Button>
+                <Button onClick={() => setStage("paste")} variant="secondary" size="sm" className="gap-2">
+                  Paste JSON back <ClipboardPaste className="size-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Textarea
+                value={prompt}
+                readOnly
+                rows={22}
+                className="font-mono text-[11px] bg-muted/30"
+                onFocus={(e) => e.currentTarget.select()}
+              />
+            </CardContent>
+          </Card>
 
-            <div className="rounded-lg border bg-card p-4 text-sm space-y-2">
-              <h4 className="font-semibold flex items-center gap-2"><Sparkles className="size-4 text-primary" /> Tips for best results</h4>
-              <ul className="space-y-1 text-muted-foreground text-xs list-disc list-inside">
-                <li>Use the strongest model available — Claude Opus / Sonnet, GPT-5 / GPT-4o, Gemini 2.5 Pro. For 100% accuracy on complex MoUs, Claude tends to follow strict JSON schemas best.</li>
-                <li>If the model adds prose before/after the JSON, just say <em>"Reply with ONLY the JSON block, no other text."</em></li>
-                <li>If the proposal is large, paste the prompt first and confirm the model is ready, THEN paste — long contexts can sometimes fail in one shot.</li>
-                <li>Don't worry about minor formatting issues in the model's reply — the paste-back validator below extracts the JSON from fenced blocks automatically.</li>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Tips for best results</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm">
+              <ul className="space-y-1.5 text-muted-foreground text-xs list-disc list-inside">
+                <li><strong className="text-foreground">Use the strongest model.</strong> Claude Opus / Sonnet are best at following strict JSON schemas. GPT-5 / 4o and Gemini 2.5 Pro also work.</li>
+                <li><strong className="text-foreground">Upload every document you have</strong> before pasting the prompt. The model cross-references between them and flags mismatches.</li>
+                <li><strong className="text-foreground">Don't paste documents as text inside the chat</strong> — attach them as PDFs. Modern LLMs read PDFs natively and preserve layout/tables.</li>
+                <li><strong className="text-foreground">For very long contexts</strong>, attach files first, then paste the prompt. Some models truncate when you do both in one go.</li>
+                <li><strong className="text-foreground">Trust the <code className="text-[10px] bg-muted px-1 rounded">risksOrAmbiguities</code> list.</strong> The prompt forces the model to flag mismatches and missing fields rather than guess. Work through that list as your first action after import.</li>
               </ul>
-            </div>
-
-            <div className="flex gap-2 text-xs">
-              <a href="https://claude.ai" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
-                Claude <ExternalLink className="size-3" />
-              </a>
-              <a href="https://chat.openai.com" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
-                ChatGPT <ExternalLink className="size-3" />
-              </a>
-              <a href="https://gemini.google.com" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
-                Gemini <ExternalLink className="size-3" />
-              </a>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Step 3 — paste back */}
@@ -949,7 +892,6 @@ function ManualIntake({
 }
 
 const MANUAL_STEPS: Array<{ id: ManualStage; label: string }> = [
-  { id: "files", label: "Documents" },
   { id: "prompt", label: "Copy prompt" },
   { id: "paste", label: "Paste JSON" },
   { id: "review", label: "Review" },
