@@ -3,7 +3,7 @@ import { DeerflowUnreachableError, deerflowExecFetch } from "@/lib/deerflow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 600;
+export const maxDuration = 300;
 
 type Format = "docx" | "pdf" | "pptx";
 type ReportType = "quarterly" | "full";
