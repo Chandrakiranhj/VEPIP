@@ -131,10 +131,7 @@ ${mouText || "(no MOU supplied)"}`;
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       input: { messages: [{ role: "user", content: prompt }] },
-      // Use the "kimi" model registered in deer-flow/config.yaml. This name
-      // matches the `models[0].name` entry; production runs on Moonshot's
-      // moonshot-v1-auto via the OpenAI-compatible endpoint.
-      config: { configurable: { model_name: "kimi" } },
+      // Let DeerFlow use its default configured model.
       stream_mode: ["messages-tuple"],
     }),
   });
