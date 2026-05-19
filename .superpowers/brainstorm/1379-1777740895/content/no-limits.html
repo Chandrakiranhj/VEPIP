@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VE — No Limits</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400;1,600;1,700&family=Instrument+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --dk:#0C0503;--dm:#2A1508;--db:#3D2010;
+  --go:#C49A32;--gl:#EDD98A;--gp:#F5E8C0;
+  --cr:#FAF7F2;--cc:#F5EDD0;--mu:#9B7B5A;--br:#E8DDD0;
+  --fd:'Cormorant Garamond',Georgia,serif;
+  --fb:'Instrument Sans',system-ui,sans-serif;
+}
+
+html,body{
+  background:#080402;
+  min-height:100vh;
+  display:flex;flex-direction:column;align-items:center;
+  padding:28px 16px 44px;gap:18px;
+  cursor:none;
+  font-family:var(--fb);
+}
+
+/* ── Custom cursor ── */
+#cur,#cur2{position:fixed;border-radius:50%;pointer-events:none;z-index:9999;transform:translate(-50%,-50%)}
+#cur{width:7px;height:7px;background:var(--go)}
+#cur2{width:26px;height:26px;border:1px solid rgba(196,154,50,.38);transition:left .08s ease,top .08s ease,width .2s,height .2s}
+
+/* ── Header ── */
+.hd h1{font-family:var(--fd);font-style:italic;font-weight:300;font-size:17px;color:var(--gl);letter-spacing:.06em;text-align:center}
+.hd p{font-size:9.5px;color:rgba(255,255,255,.25);margin-top:3px;letter-spacing:.14em;text-transform:uppercase;text-align:center}
+
+/* ── Viewer ── */
+.viewer{width:min(93vw,1120px)}
+
+/* ── Slide shell ── */
+.slide{
+  width:100%;padding-bottom:56.25%;position:relative;overflow:hidden;
+  border-radius:2px;display:none;
+  box-shadow:0 30px 90px rgba(0,0,0,.85),0 0 0 1px rgba(196,154,50,.12);
+}
+.slide.active{display:block;animation:sEnter .38s ease both}
+@keyframes sEnter{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+
+.si{position:absolute;inset:0;font-size:clamp(7px,1.12vw,13.5px)}
+
+/* Grain overlay */
+.slide::before{
+  content:'';position:absolute;inset:0;z-index:110;pointer-events:none;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size:180px 180px;opacity:.026;mix-blend-mode:overlay;
+}
+
+/* ── Animations ── */
+@keyframes barGrow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes ringDraw{to{stroke-dashoffset:0}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+.bar-f{transform-origin:left;transform:scaleX(0);animation:barGrow .95s cubic-bezier(.4,0,.2,1) var(--d,.3s) both}
+.ring-f{animation:ringDraw 1.3s cubic-bezier(.4,0,.2,1) .3s both}
+.fade-up{animation:fadeUp .6s ease var(--d,.1s) both}
+
+/* ── Nav ── */
+.nav{display:flex;align-items:center;gap:12px;justify-content:center;flex-wrap:wrap}
+.dot{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.18);cursor:none;transition:all .3s}
+.dot.on{background:var(--go);width:18px;border-radius:2.5px}
+.btn{background:none;border:1px solid rgba(196,154,50,.22);color:var(--go);padding:6px 18px;
+  border-radius:1px;cursor:none;font-family:var(--fb);font-size:9.5px;font-weight:600;
+  letter-spacing:.16em;text-transform:uppercase;transition:all .2s}
+.btn:hover{background:rgba(196,154,50,.08);border-color:rgba(196,154,50,.45)}
+.ctr{font-size:9.5px;color:rgba(255,255,255,.2);letter-spacing:.1em;min-width:95px;text-align:center}
+
+/* ── Shared elements ── */
+.eye{font-family:var(--fb);font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--go)}
+.lrule{position:absolute;left:6.8%;top:0;bottom:0;width:1px;
+  background:linear-gradient(to bottom,transparent 4%,var(--go) 18%,var(--go) 82%,transparent 96%)}
+.frule{position:absolute;bottom:7%;left:6.8%;right:6.8%;height:1px;
+  background:linear-gradient(to right,var(--go),rgba(196,154,50,.2))}
+.flab{position:absolute;bottom:2.5%;font-family:var(--fb);font-size:.5em;font-weight:400;letter-spacing:.08em;color:var(--mu)}
+.ghost{position:absolute;font-family:var(--fd);font-weight:300;font-style:italic;
+  pointer-events:none;line-height:1;color:var(--cr);opacity:.052}
+.slnum{position:absolute;font-family:var(--fd);font-weight:700;pointer-events:none;
+  line-height:1;color:var(--go);opacity:.038}
+</style>
+</head>
+<body>
+
+<div id="cur"></div>
+<div id="cur2"></div>
+
+<div class="hd">
+  <h1>Vision Empower — Unrestrained</h1>
+  <p>5 slides &nbsp;·&nbsp; Cormorant Garamond &nbsp;·&nbsp; ← → to navigate</p>
+</div>
+
+<div class="viewer">
+
+
+<!-- ════════════════════════════════════════════════════════
+  S1 — COVER
+════════════════════════════════════════════════════════ -->
+<div class="slide active" id="s1">
+<div class="si" style="background:radial-gradient(ellipse at 30% 58%,#3C1E0C 0%,#2A1508 36%,#160904 68%,#0C0503 100%)">
+
+  <div class="lrule"></div>
+
+  <!-- Braille constellation — top right -->
+  <svg style="position:absolute;top:0;right:0;width:46%;height:65%;pointer-events:none" viewBox="0 0 300 210" fill="none">
+    <circle cx="240" cy="18" r="3.6" fill="#C49A32" opacity=".24"/><circle cx="256" cy="18" r="3.6" fill="#C49A32" opacity=".24"/>
+    <circle cx="240" cy="33" r="3.6" fill="#C49A32" opacity=".24"/><circle cx="256" cy="33" r="3.6" fill="#C49A32" opacity=".24"/>
+    <circle cx="240" cy="48" r="3.6" fill="#C49A32" opacity=".24"/><circle cx="256" cy="48" r="3.6" fill="#C49A32" opacity=".24"/>
+    <circle cx="200" cy="28" r="2.8" fill="#C49A32" opacity=".18"/><circle cx="214" cy="28" r="2.8" fill="#C49A32" opacity=".18"/>
+    <circle cx="200" cy="41" r="2.8" fill="#C49A32" opacity=".18"/><circle cx="214" cy="48" r="2.8" fill="#C49A32" opacity=".18"/>
+    <circle cx="274" cy="64" r="2.2" fill="#C49A32" opacity=".16"/><circle cx="287" cy="64" r="2.2" fill="#C49A32" opacity=".16"/>
+    <circle cx="274" cy="75" r="2.2" fill="#C49A32" opacity=".16"/><circle cx="287" cy="75" r="2.2" fill="#C49A32" opacity=".16"/>
+    <circle cx="274" cy="86" r="2.2" fill="#C49A32" opacity=".16"/><circle cx="287" cy="86" r="2.2" fill="#C49A32" opacity=".16"/>
+    <circle cx="160" cy="16" r="1.8" fill="#C49A32" opacity=".14"/><circle cx="172" cy="16" r="1.8" fill="#C49A32" opacity=".14"/>
+    <circle cx="160" cy="26" r="1.8" fill="#C49A32" opacity=".14"/><circle cx="172" cy="26" r="1.8" fill="#C49A32" opacity=".14"/>
+    <circle cx="160" cy="36" r="1.8" fill="#C49A32" opacity=".14"/>
+    <circle cx="222" cy="82" r="1.4" fill="#C49A32" opacity=".12"/><circle cx="233" cy="88" r="1.4" fill="#C49A32" opacity=".12"/>
+    <circle cx="248" cy="70" r="1.3" fill="#C49A32" opacity=".1"/>
+    <circle cx="118" cy="32" r="1.2" fill="#C49A32" opacity=".1"/><circle cx="130" cy="40" r="1.2" fill="#C49A32" opacity=".1"/>
+    <circle cx="185" cy="62" r="1.1" fill="#C49A32" opacity=".09"/><circle cx="196" cy="70" r="1.1" fill="#C49A32" opacity=".09"/>
+    <circle cx="260" cy="98" r="1" fill="#C49A32" opacity=".08"/><circle cx="295" cy="52" r="1" fill="#C49A32" opacity=".08"/>
+  </svg>
+
+  <!-- Ghost "Funder" -->
+  <div class="ghost" style="font-size:18em;left:7.8%;top:19%;white-space:nowrap;letter-spacing:-.025em">Funder</div>
+
+  <!-- Organisation name -->
+  <div style="position:absolute;left:9.2%;top:8.5%;font-family:var(--fb);font-size:.61em;font-weight:600;letter-spacing:.28em;text-transform:uppercase;color:var(--go)">Vision Empower Trust</div>
+
+  <!-- Headline block -->
+  <div style="position:absolute;left:9.2%;top:50%">
+    <div class="eye" style="font-size:.56em;margin-bottom:2.8%">Quarterly Funder Report &nbsp;·&nbsp; Q3 2024–25</div>
+    <div style="font-family:var(--fd);font-size:10em;font-weight:700;color:var(--gl);line-height:.88;letter-spacing:-.025em">Update</div>
+    <div style="width:8%;height:1px;background:var(--go);margin:4.5% 0 3%;opacity:.9"></div>
+    <div style="font-family:var(--fd);font-size:1.38em;font-weight:400;color:rgba(250,247,242,.62);letter-spacing:.04em">Digital Inclusion for Visually Impaired Youth</div>
+    <div style="font-family:var(--fb);font-size:.58em;color:var(--mu);margin-top:1.4%;letter-spacing:.06em">Pratham Foundation &nbsp;·&nbsp; ₹42.5L &nbsp;·&nbsp; Apr 2024 – Mar 2025</div>
+  </div>
+
+  <div class="slnum" style="right:4.5%;bottom:-5%;font-size:15em">01</div>
+  <div class="frule"></div>
+  <div class="flab" style="left:9.2%">Generated 2 May 2026</div>
+  <div class="flab" style="right:6.8%">1 / 9</div>
+</div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════
+  S2 — KEY IMPACT
+  Stats float in dark space. No cards. Constellation.
+════════════════════════════════════════════════════════ -->
+<div class="slide" id="s2">
+<div class="si" style="background:radial-gradient(ellipse at 52% 42%,#2E1509 0%,#1C0C05 52%,#0C0503 100%)">
+
+  <div class="ghost" style="font-size:20em;left:-3%;top:6%;opacity:.038;letter-spacing:-.03em;white-space:nowrap">Impact</div>
+  <div class="lrule"></div>
+
+  <!-- Eyebrow -->
+  <div style="position:absolute;left:9%;top:8%"><div class="eye" style="font-size:.56em">Key Impact at a Glance</div></div>
+
+  <!-- Hairline divider across center -->
+  <div style="position:absolute;top:50%;left:6.8%;right:6.8%;height:1px;background:linear-gradient(to right,transparent,rgba(196,154,50,.15) 20%,rgba(196,154,50,.15) 80%,transparent)"></div>
+
+  <!-- STAT 1 — 78% deliverables (top-left, hero) -->
+  <div class="fade-up" style="--d:.15s;position:absolute;left:9%;top:16%">
+    <div style="font-family:var(--fd);font-style:italic;font-size:10.5em;font-weight:700;color:var(--go);line-height:.86;letter-spacing:-.025em">78<span style="font-size:.35em;font-style:normal;vertical-align:middle;margin-left:.06em">%</span></div>
+    <div style="font-family:var(--fb);font-size:.57em;font-weight:600;color:var(--cr);letter-spacing:.1em;text-transform:uppercase;margin-top:1.8%">Deliverables Complete</div>
+    <div style="font-family:var(--fb);font-size:.5em;color:var(--mu);margin-top:1%">7 of 9 milestones achieved</div>
+  </div>
+
+  <!-- STAT 2 — 1,240 students (top-right) -->
+  <div class="fade-up" style="--d:.28s;position:absolute;right:9%;top:13%;text-align:right">
+    <div style="font-family:var(--fd);font-size:6.8em;font-weight:600;color:var(--cr);line-height:.86;letter-spacing:-.02em">1,240</div>
+    <div style="font-family:var(--fb);font-size:.55em;font-weight:600;color:var(--go);letter-spacing:.1em;text-transform:uppercase;margin-top:2%">Students Reached</div>
+    <div style="font-family:var(--fb);font-size:.49em;color:var(--mu);margin-top:1%">Visually impaired children</div>
+  </div>
+
+  <!-- STAT 3 — 340 teachers (bottom-left) -->
+  <div class="fade-up" style="--d:.42s;position:absolute;left:20%;bottom:17%">
+    <div style="font-family:var(--fd);font-size:5.2em;font-weight:600;color:var(--cr);line-height:.86">340</div>
+    <div style="font-family:var(--fb);font-size:.54em;font-weight:600;color:var(--go);letter-spacing:.1em;text-transform:uppercase;margin-top:2%">Teachers Reached</div>
+    <div style="font-family:var(--fb);font-size:.49em;color:var(--mu);margin-top:1%">Across all field activities</div>
+  </div>
+
+  <!-- STAT 4 — 62% budget (bottom-right) -->
+  <div class="fade-up" style="--d:.56s;position:absolute;right:9%;bottom:14%;text-align:right">
+    <div style="font-family:var(--fd);font-size:4.8em;font-weight:600;color:var(--cr);line-height:.86">62<span style="font-size:.42em;font-style:italic;opacity:.55">%</span></div>
+    <div style="font-family:var(--fb);font-size:.54em;font-weight:600;color:var(--go);letter-spacing:.1em;text-transform:uppercase;margin-top:2%">Budget Utilised</div>
+    <div style="font-family:var(--fb);font-size:.49em;color:var(--mu);margin-top:1%">₹26.4L of ₹42.5L approved</div>
+  </div>
+
+  <!-- Constellation connecting lines -->
+  <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" viewBox="0 0 1000 562" preserveAspectRatio="none">
+    <line x1="320" y1="285" x2="680" y2="285" stroke="#C49A32" stroke-width=".6" opacity=".1"/>
+    <line x1="120" y1="430" x2="320" y2="285" stroke="#C49A32" stroke-width=".6" opacity=".1"/>
+    <line x1="680" y1="285" x2="880" y2="400" stroke="#C49A32" stroke-width=".6" opacity=".1"/>
+  </svg>
+
+  <!-- Braille cluster — bottom right -->
+  <svg style="position:absolute;bottom:0;right:0;width:22%;height:38%;pointer-events:none;opacity:.11" viewBox="0 0 130 90" fill="none">
+    <circle cx="115" cy="82" r="3.2" fill="#C49A32"/><circle cx="102" cy="82" r="3.2" fill="#C49A32"/>
+    <circle cx="115" cy="70" r="3.2" fill="#C49A32"/><circle cx="102" cy="70" r="3.2" fill="#C49A32"/>
+    <circle cx="115" cy="58" r="3.2" fill="#C49A32"/><circle cx="102" cy="58" r="3.2" fill="#C49A32"/>
+    <circle cx="88" cy="85" r="2.4" fill="#C49A32"/><circle cx="77" cy="85" r="2.4" fill="#C49A32"/>
+    <circle cx="88" cy="75" r="2.4" fill="#C49A32"/><circle cx="77" cy="75" r="2.4" fill="#C49A32"/>
+    <circle cx="88" cy="65" r="2.4" fill="#C49A32"/>
+  </svg>
+
+  <div class="slnum" style="right:4.5%;bottom:-5%;font-size:15em">03</div>
+  <div class="frule"></div>
+  <div class="flab" style="left:9%">Vision Empower</div>
+  <div class="flab" style="right:6.8%">3 / 9</div>
+</div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════
+  S3 — STORIES FROM THE FIELD
+  Full dark. One quote. Maximum drama.
+════════════════════════════════════════════════════════ -->
+<div class="slide" id="s3">
+<div class="si" style="background:radial-gradient(ellipse at 42% 48%,#2A1508 0%,#190B04 52%,#0C0503 100%)">
+
+  <!-- Giant ghost quote mark -->
+  <div style="position:absolute;left:4%;top:-12%;font-family:var(--fd);font-weight:300;font-style:italic;font-size:30em;color:var(--cr);opacity:.055;pointer-events:none;line-height:1">&ldquo;</div>
+
+  <!-- Braille — right edge -->
+  <svg style="position:absolute;top:0;right:0;width:16%;height:52%;pointer-events:none;opacity:.12" viewBox="0 0 90 140" fill="none">
+    <circle cx="74" cy="18" r="3" fill="#C49A32"/><circle cx="62" cy="18" r="3" fill="#C49A32"/>
+    <circle cx="74" cy="30" r="3" fill="#C49A32"/><circle cx="62" cy="30" r="3" fill="#C49A32"/>
+    <circle cx="74" cy="42" r="3" fill="#C49A32"/><circle cx="62" cy="42" r="3" fill="#C49A32"/>
+    <circle cx="49" cy="22" r="2.3" fill="#C49A32"/><circle cx="39" cy="22" r="2.3" fill="#C49A32"/>
+    <circle cx="49" cy="33" r="2.3" fill="#C49A32"/><circle cx="39" cy="33" r="2.3" fill="#C49A32"/>
+    <circle cx="49" cy="44" r="2.3" fill="#C49A32"/>
+  </svg>
+
+  <div class="lrule"></div>
+
+  <div style="position:absolute;left:9%;top:8%"><div class="eye" style="font-size:.55em">Stories from the Field</div></div>
+
+  <!-- The quote — centred, large italic Cormorant -->
+  <div class="fade-up" style="--d:.2s;position:absolute;left:13%;right:13%;top:50%;transform:translateY(-50%)">
+    <div style="font-family:var(--fd);font-style:italic;font-weight:400;font-size:2.05em;color:var(--cr);line-height:1.68;letter-spacing:.01em;text-align:center">
+      "Before this programme, my daughter had no access to learning materials she could use independently. Now she reads on her own every evening. This has changed everything for our family."
+    </div>
+    <div style="width:36px;height:1px;background:var(--go);margin:5.5% auto 3.5%;opacity:.85"></div>
+    <div style="font-family:var(--fb);font-size:.6em;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--go);text-align:center">— Sunita Devi, Parent</div>
+    <div style="font-family:var(--fb);font-size:.52em;color:var(--mu);text-align:center;margin-top:1.2%;letter-spacing:.06em">Rajasthan &nbsp;·&nbsp; December 2024</div>
+  </div>
+
+  <div class="slnum" style="right:4.5%;bottom:-5%;font-size:15em">06</div>
+  <div class="frule"></div>
+  <div class="flab" style="left:9%">Vision Empower</div>
+  <div class="flab" style="right:6.8%">6 / 9</div>
+</div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════
+  S4 — DELIVERABLES
+  Cream/light. Dark header. Editorial data table.
+════════════════════════════════════════════════════════ -->
+<div class="slide" id="s4">
+<div class="si" style="background:var(--cr)">
+
+  <!-- Dark header band -->
+  <div style="position:absolute;top:0;left:0;right:0;height:27%;background:var(--dm)">
+    <div style="position:absolute;inset:0;display:flex;align-items:flex-end;padding:0 8% 4% 9%">
+      <div>
+        <div class="eye" style="font-size:.55em;margin-bottom:2.2%">Deliverables</div>
+        <div style="font-family:var(--fd);font-size:3.8em;font-weight:600;color:var(--cr);line-height:.95;letter-spacing:-.01em">Progress Against Plan</div>
+      </div>
+      <div style="margin-left:auto;text-align:right;padding-bottom:.5%">
+        <div style="font-family:var(--fd);font-style:italic;font-size:6em;font-weight:700;color:var(--go);line-height:.82">7<span style="font-size:.36em;font-style:normal;opacity:.52"> /9</span></div>
+        <div class="eye" style="font-size:.5em;opacity:.65;margin-top:1%">Complete</div>
+      </div>
+    </div>
+    <!-- Gold bottom edge of header -->
+    <div style="position:absolute;bottom:0;left:0;right:0;height:1.5px;background:linear-gradient(to right,transparent,var(--go) 15%,var(--go) 85%,transparent)"></div>
+  </div>
+
+  <div class="slnum" style="right:-2%;bottom:-10%;font-size:17em;color:var(--dm)">04</div>
+
+  <!-- Data table -->
+  <div style="position:absolute;top:30%;left:8%;right:8%;bottom:9%">
+
+    <!-- Header row -->
+    <div style="display:grid;grid-template-columns:2.5fr .85fr .85fr 2.3fr .85fr;gap:1.5%;padding-bottom:1.8%;border-bottom:1.5px solid var(--br)">
+      <div style="font-family:var(--fb);font-size:.52em;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.12em">Deliverable</div>
+      <div style="font-family:var(--fb);font-size:.52em;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.12em;text-align:center">Target</div>
+      <div style="font-family:var(--fb);font-size:.52em;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.12em;text-align:center">Done</div>
+      <div style="font-family:var(--fb);font-size:.52em;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.12em">Progress</div>
+      <div style="font-family:var(--fb);font-size:.52em;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.12em;text-align:right">Status</div>
+    </div>
+
+    <!-- Row macro: 5 rows -->
+    <div style="display:grid;grid-template-columns:2.5fr .85fr .85fr 2.3fr .85fr;gap:1.5%;padding:1.75% 0;border-bottom:1px solid rgba(232,221,208,.6);align-items:center">
+      <div style="font-family:var(--fb);font-size:.66em;font-weight:500;color:var(--dm)">Teacher training workshops</div>
+      <div style="font-family:var(--fb);font-size:.61em;color:var(--mu);text-align:center">40</div>
+      <div style="font-family:var(--fd);font-size:.8em;font-weight:700;color:var(--go);text-align:center">42</div>
+      <div><div style="background:rgba(42,21,8,.09);height:4px;border-radius:2px;overflow:hidden"><div class="bar-f" style="--d:.2s;height:100%;width:100%;background:linear-gradient(90deg,var(--go),var(--gl));border-radius:2px"></div></div><div style="font-family:var(--fb);font-size:.46em;color:var(--go);margin-top:1.5%;font-weight:600">105% · exceeded</div></div>
+      <div style="text-align:right"><span style="background:#166534;color:#fff;font-size:.46em;padding:2% 5%;border-radius:1px;font-family:var(--fb);font-weight:700;letter-spacing:.05em;text-transform:uppercase">Done</span></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:2.5fr .85fr .85fr 2.3fr .85fr;gap:1.5%;padding:1.75% 1%;border-bottom:1px solid rgba(232,221,208,.6);align-items:center;background:rgba(245,237,208,.38);margin:0 -1%">
+      <div style="font-family:var(--fb);font-size:.66em;font-weight:500;color:var(--dm)">Braille resource kits distributed</div>
+      <div style="font-family:var(--fb);font-size:.61em;color:var(--mu);text-align:center">500</div>
+      <div style="font-family:var(--fd);font-size:.8em;font-weight:700;color:var(--dm);text-align:center">380</div>
+      <div><div style="background:rgba(42,21,8,.09);height:4px;border-radius:2px;overflow:hidden"><div class="bar-f" style="--d:.34s;height:100%;width:76%;background:var(--dm);border-radius:2px"></div></div><div style="font-family:var(--fb);font-size:.46em;color:var(--mu);margin-top:1.5%">76% · on track</div></div>
+      <div style="text-align:right"><span style="background:var(--go);color:var(--dm);font-size:.46em;padding:2% 5%;border-radius:1px;font-family:var(--fb);font-weight:700;letter-spacing:.05em;text-transform:uppercase">Active</span></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:2.5fr .85fr .85fr 2.3fr .85fr;gap:1.5%;padding:1.75% 0;border-bottom:1px solid rgba(232,221,208,.6);align-items:center">
+      <div style="font-family:var(--fb);font-size:.66em;font-weight:500;color:var(--dm)">Schools enrolled in programme</div>
+      <div style="font-family:var(--fb);font-size:.61em;color:var(--mu);text-align:center">20</div>
+      <div style="font-family:var(--fd);font-size:.8em;font-weight:700;color:var(--go);text-align:center">24</div>
+      <div><div style="background:rgba(42,21,8,.09);height:4px;border-radius:2px;overflow:hidden"><div class="bar-f" style="--d:.48s;height:100%;width:100%;background:linear-gradient(90deg,var(--go),var(--gl));border-radius:2px"></div></div><div style="font-family:var(--fb);font-size:.46em;color:var(--go);margin-top:1.5%;font-weight:600">120% · exceeded</div></div>
+      <div style="text-align:right"><span style="background:#166534;color:#fff;font-size:.46em;padding:2% 5%;border-radius:1px;font-family:var(--fb);font-weight:700;letter-spacing:.05em;text-transform:uppercase">Done</span></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:2.5fr .85fr .85fr 2.3fr .85fr;gap:1.5%;padding:1.75% 1%;border-bottom:1px solid rgba(232,221,208,.6);align-items:center;background:rgba(245,237,208,.38);margin:0 -1%">
+      <div style="font-family:var(--fb);font-size:.66em;font-weight:500;color:var(--dm)">Community awareness sessions</div>
+      <div style="font-family:var(--fb);font-size:.61em;color:var(--mu);text-align:center">15</div>
+      <div style="font-family:var(--fd);font-size:.8em;font-weight:700;color:var(--dm);text-align:center">12</div>
+      <div><div style="background:rgba(42,21,8,.09);height:4px;border-radius:2px;overflow:hidden"><div class="bar-f" style="--d:.62s;height:100%;width:80%;background:var(--dm);border-radius:2px"></div></div><div style="font-family:var(--fb);font-size:.46em;color:var(--mu);margin-top:1.5%">80%</div></div>
+      <div style="text-align:right"><span style="background:var(--go);color:var(--dm);font-size:.46em;padding:2% 5%;border-radius:1px;font-family:var(--fb);font-weight:700;letter-spacing:.05em;text-transform:uppercase">Active</span></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:2.5fr .85fr .85fr 2.3fr .85fr;gap:1.5%;padding:1.75% 0;align-items:center">
+      <div style="font-family:var(--fb);font-size:.66em;font-weight:500;color:var(--dm)">Digital learning content modules</div>
+      <div style="font-family:var(--fb);font-size:.61em;color:var(--mu);text-align:center">8</div>
+      <div style="font-family:var(--fd);font-size:.8em;font-weight:700;color:var(--go);text-align:center">8</div>
+      <div><div style="background:rgba(42,21,8,.09);height:4px;border-radius:2px;overflow:hidden"><div class="bar-f" style="--d:.76s;height:100%;width:100%;background:linear-gradient(90deg,var(--go),var(--gl));border-radius:2px"></div></div><div style="font-family:var(--fb);font-size:.46em;color:var(--go);margin-top:1.5%;font-weight:600">100%</div></div>
+      <div style="text-align:right"><span style="background:#166534;color:#fff;font-size:.46em;padding:2% 5%;border-radius:1px;font-family:var(--fb);font-weight:700;letter-spacing:.05em;text-transform:uppercase">Done</span></div>
+    </div>
+
+  </div>
+
+  <div style="position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(to right,transparent,var(--go) 30%,var(--go) 70%,transparent)"></div>
+  <div class="flab" style="left:8%;color:var(--mu)">Vision Empower</div>
+  <div class="flab" style="right:6.8%;color:var(--mu)">4 / 9</div>
+</div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════
+  S5 — FINANCIAL
+  Dark. Animated donut with glow. Staggered bars.
+════════════════════════════════════════════════════════ -->
+<div class="slide" id="s5">
+<div class="si" style="background:radial-gradient(ellipse at 62% 42%,#3C1E0C 0%,#2A1508 42%,#0C0503 100%)">
+
+  <!-- Braille top-left -->
+  <svg style="position:absolute;top:0;left:5%;width:30%;height:52%;pointer-events:none;opacity:.12" viewBox="0 0 175 145" fill="none">
+    <circle cx="18" cy="18" r="4" fill="#C49A32"/><circle cx="33" cy="18" r="4" fill="#C49A32"/>
+    <circle cx="18" cy="32" r="4" fill="#C49A32"/><circle cx="33" cy="32" r="4" fill="#C49A32"/>
+    <circle cx="18" cy="46" r="4" fill="#C49A32"/><circle cx="33" cy="46" r="4" fill="#C49A32"/>
+    <circle cx="57" cy="22" r="3" fill="#C49A32"/><circle cx="70" cy="22" r="3" fill="#C49A32"/>
+    <circle cx="57" cy="34" r="3" fill="#C49A32"/><circle cx="70" cy="34" r="3" fill="#C49A32"/>
+    <circle cx="57" cy="46" r="3" fill="#C49A32"/>
+    <circle cx="93" cy="15" r="2.3" fill="#C49A32"/><circle cx="104" cy="15" r="2.3" fill="#C49A32"/>
+    <circle cx="93" cy="26" r="2.3" fill="#C49A32"/>
+    <circle cx="132" cy="29" r="1.9" fill="#C49A32"/><circle cx="142" cy="29" r="1.9" fill="#C49A32"/>
+    <circle cx="132" cy="39" r="1.9" fill="#C49A32"/><circle cx="142" cy="39" r="1.9" fill="#C49A32"/>
+  </svg>
+
+  <div class="ghost" style="font-size:10.5em;right:-3%;top:14%;letter-spacing:-.02em;opacity:.038;white-space:nowrap">Finance</div>
+  <div class="lrule"></div>
+
+  <!-- Left: title + donut -->
+  <div style="position:absolute;left:9%;top:12%;width:38%">
+    <div class="eye" style="font-size:.55em;margin-bottom:3%">Financials</div>
+    <div style="font-family:var(--fd);font-size:3.1em;font-weight:600;color:var(--cr);line-height:1.08;margin-bottom:7%">Budget &<br>Utilisation</div>
+
+    <div style="display:flex;align-items:center;gap:7%">
+      <!-- Donut with glow filter -->
+      <svg width="136" height="136" viewBox="0 0 136 136" style="flex-shrink:0;overflow:visible">
+        <defs>
+          <linearGradient id="dg" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#C49A32"/>
+            <stop offset="55%" stop-color="#EDD98A"/>
+            <stop offset="100%" stop-color="#C49A32"/>
+          </linearGradient>
+          <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="4" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        <!-- Track -->
+        <circle cx="68" cy="68" r="54" fill="none" stroke="rgba(196,154,50,.11)" stroke-width="13.5"/>
+        <!-- Filled arc: circumference=2π×54=339.3, 62%=210.4 -->
+        <circle cx="68" cy="68" r="54" fill="none" stroke="url(#dg)" stroke-width="13.5"
+          stroke-dasharray="210.4 339.3" stroke-dashoffset="210.4" stroke-linecap="round"
+          transform="rotate(-90 68 68)" filter="url(#glow)" class="ring-f"/>
+        <text x="68" y="63" text-anchor="middle" fill="#EDD98A" font-size="22" font-weight="700" font-family="Georgia,serif" font-style="italic">62%</text>
+        <text x="68" y="78" text-anchor="middle" fill="rgba(155,123,90,.65)" font-size="8" font-family="sans-serif" letter-spacing="1.5">UTILISED</text>
+      </svg>
+
+      <div>
+        <div style="font-family:var(--fd);font-size:2.1em;font-weight:700;color:var(--go);line-height:1">₹26.4L</div>
+        <div style="font-family:var(--fb);font-size:.54em;color:var(--mu);margin-top:2%;letter-spacing:.05em">Spent of ₹42.5L approved</div>
+        <div style="width:28%;height:1px;background:rgba(196,154,50,.32);margin:5.5% 0"></div>
+        <div style="font-family:var(--fd);font-size:1.45em;font-weight:600;color:var(--cr)">₹16.1L</div>
+        <div style="font-family:var(--fb);font-size:.51em;color:var(--mu);letter-spacing:.04em">Balance remaining</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Divider -->
+  <div style="position:absolute;left:50%;top:9%;bottom:10%;width:1px;background:linear-gradient(to bottom,transparent,rgba(196,154,50,.2),transparent)"></div>
+
+  <!-- Right: bars -->
+  <div style="position:absolute;left:53%;right:7%;top:12%;bottom:14%">
+    <div style="font-family:var(--fb);font-size:.56em;font-weight:600;color:var(--mu);letter-spacing:.16em;text-transform:uppercase;margin-bottom:5%">By Category</div>
+    <div style="display:flex;flex-direction:column;gap:5.2%">
+
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:1.8%"><span style="font-family:var(--fb);font-size:.63em;color:var(--cr);font-weight:400">Personnel &amp; HR</span><span style="font-family:var(--fd);font-size:.7em;color:var(--go);font-weight:700">74%</span></div><div style="background:rgba(196,154,50,.1);height:5px;border-radius:2px;overflow:hidden"><div class="bar-f" style="--d:.28s;height:100%;width:74%;background:linear-gradient(90deg,var(--go),var(--gl));border-radius:2px"></div></div></div>
+
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:1.8%"><span style="font-family:var(--fb);font-size:.63em;color:var(--cr);font-weight:400">Field Operations</span><span style="font-family:var(--fd);font-size:.7em;color:var(--go);font-weight:700">58%</span></div><div style="background:rgba(196,154,50,.1);height:5px;border-radius:2px;overflow:hidden"><div class="bar-f" style="--d:.42s;height:100%;width:58%;background:linear-gradient(90deg,var(--go),var(--gl));border-radius:2px"></div></div></div>
+
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:1.8%"><span style="font-family:var(--fb);font-size:.63em;color:var(--cr);font-weight:400">Materials &amp; Kits</span><span style="font-family:var(--fd);font-size:.7em;color:var(--gl);font-weight:700">91%</span></div><div style="background:rgba(196,154,50,.1);height:5px;border-radius:2px;overflow:hidden"><div class="bar-f" style="--d:.56s;height:100%;width:91%;background:linear-gradient(90deg,var(--gl),rgba(255,255,255,.8));border-radius:2px"></div></div></div>
+
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:1.8%"><span style="font-family:var(--fb);font-size:.63em;color:var(--cr);font-weight:400">Training &amp; Capacity</span><span style="font-family:var(--fd);font-size:.7em;color:var(--go);font-weight:700">45%</span></div><div style="background:rgba(196,154,50,.1);height:5px;border-radius:2px;overflow:hidden"><div class="bar-f" style="--d:.7s;height:100%;width:45%;background:linear-gradient(90deg,var(--go),var(--gl));border-radius:2px"></div></div></div>
+
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:1.8%"><span style="font-family:var(--fb);font-size:.63em;color:var(--cr);font-weight:400">Admin &amp; Overheads</span><span style="font-family:var(--fd);font-size:.7em;color:var(--go);font-weight:700">39%</span></div><div style="background:rgba(196,154,50,.1);height:5px;border-radius:2px;overflow:hidden"><div class="bar-f" style="--d:.84s;height:100%;width:39%;background:linear-gradient(90deg,var(--go),var(--gl));border-radius:2px"></div></div></div>
+
+    </div>
+  </div>
+
+  <div class="slnum" style="right:4.5%;bottom:-5%;font-size:15em">08</div>
+  <div class="frule"></div>
+  <div class="flab" style="left:9%">Vision Empower</div>
+  <div class="flab" style="right:6.8%">8 / 9</div>
+</div>
+</div>
+
+
+</div><!-- .viewer -->
+
+<div class="nav">
+  <button class="btn" onclick="nav(-1)">← Prev</button>
+  <div style="display:flex;gap:8px;align-items:center">
+    <div class="dot on" onclick="go(0)"></div>
+    <div class="dot" onclick="go(1)"></div>
+    <div class="dot" onclick="go(2)"></div>
+    <div class="dot" onclick="go(3)"></div>
+    <div class="dot" onclick="go(4)"></div>
+  </div>
+  <span class="ctr" id="ctr">Cover</span>
+  <button class="btn" onclick="nav(1)">Next →</button>
+</div>
+
+<div style="text-align:center;font-size:9.5px;color:rgba(255,255,255,.16);letter-spacing:.12em;text-transform:uppercase;font-family:var(--fb)">
+  Be brutal — I can push any of these further
+</div>
+
+<script>
+// Cursor
+const cur=document.getElementById('cur'),cur2=document.getElementById('cur2');
+let mx=0,my=0,rx=window.innerWidth/2,ry=window.innerHeight/2;
+document.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;cur.style.left=mx+'px';cur.style.top=my+'px'});
+(function loop(){rx+=(mx-rx)*.1;ry+=(my-ry)*.1;cur2.style.left=rx+'px';cur2.style.top=ry+'px';requestAnimationFrame(loop)})();
+
+// Slides
+let c=0;
+const SL=document.querySelectorAll('.slide');
+const DT=document.querySelectorAll('.dot');
+const LB=['Cover','Key Impact','Stories','Deliverables','Financial'];
+
+function show(n){
+  SL.forEach((s,i)=>s.classList.toggle('active',i===n));
+  DT.forEach((d,i)=>d.classList.toggle('on',i===n));
+  document.getElementById('ctr').textContent=LB[n];
+  c=n;
+  // Restart animations
+  SL[n].querySelectorAll('.bar-f,.ring-f,.fade-up').forEach(el=>{
+    el.style.animation='none';
+    void el.offsetHeight;
+    el.style.animation='';
+  });
+}
+function nav(d){show((c+d+5)%5)}
+function go(n){show(n)}
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'||e.key==='ArrowDown')nav(1);
+  if(e.key==='ArrowLeft'||e.key==='ArrowUp')nav(-1);
+});
+</script>
+</body>
+</html>

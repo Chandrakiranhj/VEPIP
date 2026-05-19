@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm -rf deer-flow/backend/.deer-flow/reports/*)",
+      "Bash(curl -sN -X POST http://localhost:3000/api/ai/generate-document -H \"Content-Type: application/json\" --data @/tmp/vercel-test-narr.json --max-time 90)",
+      "Read(//tmp/**)"
+    ]
+  }
+}
