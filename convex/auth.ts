@@ -18,6 +18,23 @@ const siteUrl =
   process.env.NEXT_PUBLIC_CONVEX_SITE_URL || 
   "http://localhost:3000";
 
+function isNonEmptyString(value: string | undefined): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+const trustedOrigins = Array.from(
+  new Set(
+    [
+      siteUrl,
+      process.env.NEXT_PUBLIC_SITE_URL,
+      ...(process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? "")
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean),
+    ].filter(isNonEmptyString),
+  ),
+);
+
 export const SUPER_ADMIN_EMAIL = "chandrakiran@visionempowertrust.org";
 const superAdminInitialPassword = process.env.SUPERADMIN_INITIAL_PASSWORD;
 
@@ -26,6 +43,7 @@ export const authComponent = createClient<DataModel>(components.betterAuth);
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
   return betterAuth({
     baseURL: siteUrl,
+    trustedOrigins,
     database: authComponent.adapter(ctx),
     emailAndPassword: {
       enabled: true,
