@@ -74,6 +74,12 @@ function fyBudgetAllocations(amount: number, startDate?: string | null, endDate?
   }).filter((row) => row.days > 0);
 }
 
+function equalStateAllocations(states: string[]) {
+  if (states.length === 0) return [];
+  const fraction = 1 / states.length;
+  return states.map((state) => ({ state, fraction }));
+}
+
 function projectSummaryText(p: Doc<"projects"> | (Omit<Doc<"projects">, "_id" | "_creationTime"> & { _id?: Id<"projects"> })) {
   return [
     p.name,
@@ -184,10 +190,14 @@ export const createManual = mutation({
     requireLeadership(person);
 
     const now = Date.now();
+    const fyBudgetRows = fyBudgetAllocations(args.grantAmount, args.startDate, args.endDate);
 
     const id = await ctx.db.insert("projects", {
       ...args,
       status: "on_track",
+      stateAllocations: equalStateAllocations(args.states),
+      fiscalYears: enumerateFiscalYears(args.startDate, args.endDate),
+      fyBudgetAllocations: fyBudgetRows,
       createdAt: now,
       updatedAt: now,
     });
@@ -628,9 +638,29 @@ export const update = mutation({
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
     await requireProjectAccess(ctx, person, args.projectId);
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new Error("Project not found");
+
+    const shouldRefreshFiscalYears =
+      args.updates.startDate !== undefined ||
+      args.updates.endDate !== undefined ||
+      args.updates.grantAmount !== undefined;
+    const startDate = args.updates.startDate ?? project.startDate;
+    const endDate = args.updates.endDate ?? project.endDate;
+    const grantAmount = args.updates.grantAmount ?? project.grantAmount;
+    const shouldRefreshStateAllocations = args.updates.states !== undefined;
 
     await ctx.db.patch(args.projectId, {
       ...args.updates,
+      ...(shouldRefreshStateAllocations
+        ? { stateAllocations: equalStateAllocations(args.updates.states ?? []) }
+        : {}),
+      ...(shouldRefreshFiscalYears
+        ? {
+            fiscalYears: enumerateFiscalYears(startDate, endDate),
+            fyBudgetAllocations: fyBudgetAllocations(grantAmount, startDate, endDate),
+          }
+        : {}),
       updatedAt: Date.now(),
     });
     await scheduleProjectIngestion(ctx, args.projectId);

@@ -68,6 +68,40 @@ export const updateStatus = mutation({
   },
 });
 
+export const update = mutation({
+  args: {
+    milestoneId: v.id("milestones"),
+    updates: v.object({
+      title: v.optional(v.string()),
+      dueDate: v.optional(v.string()),
+      status: v.optional(
+        v.union(
+          v.literal("not_started"),
+          v.literal("in_progress"),
+          v.literal("completed"),
+          v.literal("overdue"),
+        ),
+      ),
+    }),
+  },
+  handler: async (ctx, args) => {
+    const { person } = await requireCurrentPerson(ctx);
+    const milestone = await ctx.db.get(args.milestoneId);
+    if (!milestone) throw new Error("Milestone not found");
+    await requireProjectAccess(ctx, person, milestone.projectId);
+
+    await ctx.db.patch(args.milestoneId, {
+      ...args.updates,
+      ...(args.updates.dueDate !== undefined
+        ? { fiscalYear: fiscalYearForDate(args.updates.dueDate) }
+        : {}),
+      ...(args.updates.status !== undefined
+        ? { completedAt: args.updates.status === "completed" ? new Date().toISOString().slice(0, 10) : undefined }
+        : {}),
+    });
+  },
+});
+
 export const addInternal = internalMutation({
   args: { projectId: v.id("projects"), title: v.string(), dueDate: v.string() },
   handler: async (ctx, args) => {

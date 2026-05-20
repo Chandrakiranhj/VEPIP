@@ -16,6 +16,10 @@ function fiscalYearForDate(dateInput?: string | null) {
   return `${pad(startYear % 100)}-${pad((startYear + 1) % 100)}`;
 }
 
+function countsTowardBudget(status: Doc<"expenses">["status"]) {
+  return status === "submitted" || status === "approved";
+}
+
 function activityText(a: Pick<Doc<"activities">, "title" | "notes" | "testimonial" | "testimonialBy" | "state" | "location">) {
   return [
     a.title,
@@ -85,6 +89,13 @@ export const logActivity = mutation({
 export const updateActivity = mutation({
   args: {
     activityId: v.id("activities"),
+    title: v.optional(v.string()),
+    activityDate: v.optional(v.string()),
+    state: v.optional(v.string()),
+    location: v.optional(v.string()),
+    teachersReached: v.optional(v.number()),
+    studentsReached: v.optional(v.number()),
+    schoolsReached: v.optional(v.number()),
     testimonial: v.optional(v.string()),
     testimonialBy: v.optional(v.string()),
     notes: v.optional(v.string()),
@@ -97,6 +108,63 @@ export const updateActivity = mutation({
     await requireProjectAccess(ctx, person, activity.projectId);
     await ctx.db.patch(activityId, updates);
     await scheduleActivityIngestion(ctx, activityId);
+  },
+});
+
+export const updateExpense = mutation({
+  args: {
+    expenseId: v.id("expenses"),
+    updates: v.object({
+      categoryId: v.optional(v.id("budgetCategories")),
+      spentOn: v.optional(v.string()),
+      amount: v.optional(v.number()),
+      description: v.optional(v.string()),
+      paymentMode: v.optional(v.string()),
+      status: v.optional(
+        v.union(
+          v.literal("draft"),
+          v.literal("submitted"),
+          v.literal("approved"),
+          v.literal("rejected"),
+        ),
+      ),
+    }),
+  },
+  handler: async (ctx, args) => {
+    const { person } = await requireCurrentPerson(ctx);
+    const expense = await ctx.db.get(args.expenseId);
+    if (!expense) throw new Error("Expense not found");
+    await requireProjectAccess(ctx, person, expense.projectId);
+
+    const nextCategoryId = args.updates.categoryId ?? expense.categoryId;
+    const nextAmount = args.updates.amount ?? expense.amount;
+    const nextStatus = args.updates.status ?? expense.status;
+    const previousBudgetAmount = countsTowardBudget(expense.status) ? expense.amount : 0;
+    const nextBudgetAmount = countsTowardBudget(nextStatus) ? nextAmount : 0;
+
+    if (expense.categoryId === nextCategoryId) {
+      const category = await ctx.db.get(expense.categoryId);
+      if (category && previousBudgetAmount !== nextBudgetAmount) {
+        await ctx.db.patch(category._id, {
+          spentAmount: Math.max(0, category.spentAmount - previousBudgetAmount + nextBudgetAmount),
+        });
+      }
+    } else {
+      const oldCategory = await ctx.db.get(expense.categoryId);
+      const newCategory = await ctx.db.get(nextCategoryId);
+      if (oldCategory && previousBudgetAmount > 0) {
+        await ctx.db.patch(oldCategory._id, {
+          spentAmount: Math.max(0, oldCategory.spentAmount - previousBudgetAmount),
+        });
+      }
+      if (newCategory && nextBudgetAmount > 0) {
+        await ctx.db.patch(newCategory._id, {
+          spentAmount: newCategory.spentAmount + nextBudgetAmount,
+        });
+      }
+    }
+
+    await ctx.db.patch(args.expenseId, args.updates);
   },
 });
 
@@ -241,6 +309,41 @@ export const updateDeliverableProgress = mutation({
     await ctx.db.patch(args.deliverableId, {
       achieved: args.achieved,
       status,
+    });
+  },
+});
+
+export const updateDeliverable = mutation({
+  args: {
+    deliverableId: v.id("deliverables"),
+    updates: v.object({
+      title: v.optional(v.string()),
+      description: v.optional(v.string()),
+      target: v.optional(v.number()),
+      achieved: v.optional(v.number()),
+      unit: v.optional(v.string()),
+      dueDate: v.optional(v.string()),
+      status: v.optional(
+        v.union(
+          v.literal("not_started"),
+          v.literal("in_progress"),
+          v.literal("completed"),
+          v.literal("overdue"),
+        ),
+      ),
+    }),
+  },
+  handler: async (ctx, args) => {
+    const { person } = await requireCurrentPerson(ctx);
+    const deliverable = await ctx.db.get(args.deliverableId);
+    if (!deliverable) throw new Error("Deliverable not found");
+    await requireProjectAccess(ctx, person, deliverable.projectId);
+
+    await ctx.db.patch(args.deliverableId, {
+      ...args.updates,
+      ...(args.updates.dueDate !== undefined
+        ? { fiscalYear: fiscalYearForDate(args.updates.dueDate) }
+        : {}),
     });
   },
 });

@@ -45,6 +45,17 @@ function label(v: string) {
 
 type Tab = "deliverables" | "milestones" | "activities" | "financials" | "team" | "alerts" | "testimonials" | "gallery";
 
+const projectStatusOptions = ["on_track", "at_risk", "overdue", "completed"] as const;
+const deliverableStatusOptions = ["not_started", "in_progress", "completed", "overdue"] as const;
+const expenseStatusOptions = ["draft", "submitted", "approved", "rejected"] as const;
+type ProjectStatus = (typeof projectStatusOptions)[number];
+type DeliverableStatus = (typeof deliverableStatusOptions)[number];
+type ExpenseStatus = (typeof expenseStatusOptions)[number];
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 // ─── Milestone Timeline ────────────────────────────────────────────────────────
 
 function MilestoneTimeline({ projectId, startDate, endDate }: {
@@ -54,10 +65,17 @@ function MilestoneTimeline({ projectId, startDate, endDate }: {
 }) {
   const milestones = useQuery(api.milestones.listByProject, { projectId }) ?? [];
   const addMutation = useMutation(api.milestones.add);
+  const updateMilestone = useMutation(api.milestones.update);
   const updateStatus = useMutation(api.milestones.updateStatus);
   const remove = useMutation(api.milestones.remove);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ title: "", dueDate: "" });
+  const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null);
+  const [milestoneEditForm, setMilestoneEditForm] = useState({
+    title: "",
+    dueDate: "",
+    status: "not_started" as DeliverableStatus,
+  });
   const [busy, setBusy] = useState<string | null>(null);
 
   const sorted = [...milestones].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
@@ -70,6 +88,33 @@ function MilestoneTimeline({ projectId, startDate, endDate }: {
       await addMutation({ projectId, title: form.title, dueDate: form.dueDate });
       setForm({ title: "", dueDate: "" });
       setAdding(false);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function startMilestoneEdit(ms: (typeof milestones)[number]) {
+    setEditingMilestoneId(ms._id);
+    setMilestoneEditForm({
+      title: ms.title,
+      dueDate: ms.dueDate,
+      status: ms.status,
+    });
+  }
+
+  async function saveMilestoneEdit(milestoneId: Id<"milestones">) {
+    if (!milestoneEditForm.title || !milestoneEditForm.dueDate) return;
+    setBusy(`edit-${milestoneId}`);
+    try {
+      await updateMilestone({
+        milestoneId,
+        updates: {
+          title: milestoneEditForm.title,
+          dueDate: milestoneEditForm.dueDate,
+          status: milestoneEditForm.status,
+        },
+      });
+      setEditingMilestoneId(null);
     } finally {
       setBusy(null);
     }
@@ -147,50 +192,57 @@ function MilestoneTimeline({ projectId, startDate, endDate }: {
                     {/* Dot */}
                     <div className={cn("absolute left-2 top-2 h-3 w-3 rounded-full border-2 border-background z-10", dotColor)} />
                     <div className="flex-1 rounded-lg border bg-background p-3 hover:bg-muted/20 transition-colors">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1">
-                          <div className="font-medium text-sm">{ms.title}</div>
-                          <div className="text-xs text-muted-foreground mt-0.5">
-                            Due: {ms.dueDate}
-                            {ms.completedAt && ` · Completed: ${ms.completedAt}`}
+                      {editingMilestoneId === ms._id ? (
+                        <div className="space-y-3">
+                          <div className="grid gap-2 sm:grid-cols-[1fr_150px_150px]">
+                            <Input value={milestoneEditForm.title} onChange={(e) => setMilestoneEditForm({ ...milestoneEditForm, title: e.target.value })} className="h-8" />
+                            <Input type="date" value={milestoneEditForm.dueDate} onChange={(e) => setMilestoneEditForm({ ...milestoneEditForm, dueDate: e.target.value })} className="h-8" />
+                            <select className="h-8 rounded-md border bg-background px-2 text-sm" value={milestoneEditForm.status} onChange={(e) => setMilestoneEditForm({ ...milestoneEditForm, status: e.target.value as DeliverableStatus })}>
+                              {deliverableStatusOptions.map((status) => <option key={status} value={status}>{label(status)}</option>)}
+                            </select>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button size="sm" disabled={busy === `edit-${ms._id}` || !milestoneEditForm.title || !milestoneEditForm.dueDate} onClick={() => saveMilestoneEdit(ms._id)}>
+                              {busy === `edit-${ms._id}` ? <Loader2 className="size-3 animate-spin mr-1" /> : <Save className="size-3 mr-1" />}
+                              Save
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setEditingMilestoneId(null)}>Cancel</Button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className={statusStyles[effectiveStatus] ?? statusStyles.info}>
-                            {label(effectiveStatus)}
-                          </Badge>
-                          <div className="hidden group-hover:flex items-center gap-1">
-                            {ms.status !== "completed" && (
-                              <button
-                                type="button"
-                                title="Mark complete"
-                                className="rounded p-1 hover:bg-emerald-500/10 text-muted-foreground hover:text-emerald-600"
-                                onClick={() => updateStatus({ milestoneId: ms._id, status: "completed" })}
-                              >
-                                <CheckCircle2 className="size-3.5" />
+                      ) : (
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1">
+                            <div className="font-medium text-sm">{ms.title}</div>
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                              Due: {ms.dueDate}
+                              {ms.completedAt && ` · Completed: ${ms.completedAt}`}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className={statusStyles[effectiveStatus] ?? statusStyles.info}>
+                              {label(effectiveStatus)}
+                            </Badge>
+                            <div className="flex items-center gap-1">
+                              <button type="button" title="Edit" className="rounded p-1 hover:bg-muted text-muted-foreground hover:text-foreground" onClick={() => startMilestoneEdit(ms)}>
+                                <Edit3 className="size-3.5" />
                               </button>
-                            )}
-                            {ms.status === "not_started" && (
-                              <button
-                                type="button"
-                                title="Mark in progress"
-                                className="rounded p-1 hover:bg-blue-500/10 text-muted-foreground hover:text-blue-600"
-                                onClick={() => updateStatus({ milestoneId: ms._id, status: "in_progress" })}
-                              >
-                                <Calendar className="size-3.5" />
+                              {ms.status !== "completed" && (
+                                <button type="button" title="Mark complete" className="rounded p-1 hover:bg-emerald-500/10 text-muted-foreground hover:text-emerald-600" onClick={() => updateStatus({ milestoneId: ms._id, status: "completed" })}>
+                                  <CheckCircle2 className="size-3.5" />
+                                </button>
+                              )}
+                              {ms.status === "not_started" && (
+                                <button type="button" title="Mark in progress" className="rounded p-1 hover:bg-blue-500/10 text-muted-foreground hover:text-blue-600" onClick={() => updateStatus({ milestoneId: ms._id, status: "in_progress" })}>
+                                  <Calendar className="size-3.5" />
+                                </button>
+                              )}
+                              <button type="button" title="Delete" className="rounded p-1 hover:bg-red-500/10 text-muted-foreground hover:text-red-600" onClick={() => remove({ milestoneId: ms._id })}>
+                                <Trash2 className="size-3.5" />
                               </button>
-                            )}
-                            <button
-                              type="button"
-                              title="Delete"
-                              className="rounded p-1 hover:bg-red-500/10 text-muted-foreground hover:text-red-600"
-                              onClick={() => remove({ milestoneId: ms._id })}
-                            >
-                              <Trash2 className="size-3.5" />
-                            </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -379,24 +431,56 @@ export default function ProjectDetailPage() {
   const approveExpense = useMutation(api.operations.approveExpense);
   const rejectExpense = useMutation(api.operations.rejectExpense);
   const addDeliverable = useMutation(api.operations.addDeliverable);
+  const updateDeliverable = useMutation(api.operations.updateDeliverable);
+  const updateExpense = useMutation(api.operations.updateExpense);
   const assignTeam = useMutation(api.people.assignToProject);
   const updateActivity = useMutation(api.operations.updateActivity);
   const updateProject = useMutation(api.projects.update);
 
   const addTestimonial = useMutation(api.impact.addTestimonial);
+  const updateTestimonialRecord = useMutation(api.impact.updateTestimonial);
+  const removeTestimonial = useMutation(api.impact.removeTestimonial);
+  const updateGalleryItem = useMutation(api.impact.updateGalleryItem);
   const removeGalleryItem = useMutation(api.impact.removeGalleryItem);
 
   const [activeTab, setActiveTab] = useState<Tab>("deliverables");
   const [busy, setBusy] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [editForm, setEditForm] = useState({ name: "", funderName: "", summary: "", grantAmount: 0, startDate: "", endDate: "" });
+  const [editForm, setEditForm] = useState({
+    name: "",
+    funderName: "",
+    summary: "",
+    grantAmount: "",
+    startDate: "",
+    endDate: "",
+    states: "",
+    status: "on_track" as ProjectStatus,
+  });
   const [selectedBudgetId, setSelectedBudgetId] = useState("");
-  const [activityForm, setActivityForm] = useState({ title: "", location: "", state: "", teachersReached: "", studentsReached: "", schoolsReached: "", notes: "", testimonial: "", testimonialBy: "" });
-  const [expenseForm, setExpenseForm] = useState({ amount: "", description: "", paymentMode: "" });
+  const [activityForm, setActivityForm] = useState({ title: "", activityDate: todayIso(), location: "", state: "", teachersReached: "", studentsReached: "", schoolsReached: "", notes: "", testimonial: "", testimonialBy: "" });
+  const [expenseForm, setExpenseForm] = useState({ spentOn: todayIso(), amount: "", description: "", paymentMode: "" });
   const [deliverableForm, setDeliverableForm] = useState({ title: "", description: "", target: "", unit: "", dueDate: "" });
+  const [editingDeliverableId, setEditingDeliverableId] = useState<string | null>(null);
+  const [deliverableEditForm, setDeliverableEditForm] = useState({
+    title: "",
+    description: "",
+    target: "",
+    achieved: "",
+    unit: "",
+    dueDate: "",
+    status: "not_started" as DeliverableStatus,
+  });
+  const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
+  const [activityEditForm, setActivityEditForm] = useState({ title: "", activityDate: "", location: "", state: "", teachersReached: "", studentsReached: "", schoolsReached: "", notes: "", testimonial: "", testimonialBy: "" });
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [expenseEditForm, setExpenseEditForm] = useState({ categoryId: "", spentOn: "", amount: "", description: "", paymentMode: "", status: "submitted" as ExpenseStatus });
   const [showAddDeliverable, setShowAddDeliverable] = useState(false);
   const [showAddTestimonial, setShowAddTestimonial] = useState(false);
   const [impactForm, setImpactForm] = useState({ content: "", author: "", role: "" });
+  const [editingImpactId, setEditingImpactId] = useState<string | null>(null);
+  const [impactEditForm, setImpactEditForm] = useState({ content: "", author: "", role: "" });
+  const [editingGalleryId, setEditingGalleryId] = useState<string | null>(null);
+  const [galleryEditForm, setGalleryEditForm] = useState({ caption: "", description: "" });
   const [editingTestimonial, setEditingTestimonial] = useState<string | null>(null);
   const [testimonialForm, setTestimonialForm] = useState({ testimonial: "", testimonialBy: "" });
   const [teamForm, setTeamForm] = useState({ programManagerId: "", accountManagerId: "" });
@@ -434,10 +518,60 @@ export default function ProjectDetailPage() {
 
   function startEditing() {
     if (!project) return;
-    setEditForm({ name: project.name, funderName: project.funderName, summary: project.summary || "", grantAmount: project.grantAmount, startDate: project.startDate, endDate: project.endDate });
+    setEditForm({
+      name: project.name,
+      funderName: project.funderName,
+      summary: project.summary || "",
+      grantAmount: String(project.grantAmount),
+      startDate: project.startDate,
+      endDate: project.endDate,
+      states: project.states.join(", "),
+      status: project.status,
+    });
     setLogoStorageId(project.funderLogoStorageId || null);
     setLogoPreview(project.funderLogoUrl || null);
     setIsEditing(true);
+  }
+
+  function startDeliverableEdit(item: NonNullable<typeof project>["deliverables"][number]) {
+    setEditingDeliverableId(item._id);
+    setDeliverableEditForm({
+      title: item.title,
+      description: item.description ?? "",
+      target: item.target == null ? "" : String(item.target),
+      achieved: item.achieved == null ? "" : String(item.achieved),
+      unit: item.unit ?? "",
+      dueDate: item.dueDate,
+      status: item.status,
+    });
+  }
+
+  function startActivityEdit(act: NonNullable<typeof project>["activities"][number]) {
+    setEditingActivityId(act._id);
+    setActivityEditForm({
+      title: act.title,
+      activityDate: act.activityDate,
+      location: act.location ?? "",
+      state: act.state ?? "",
+      teachersReached: act.teachersReached == null ? "" : String(act.teachersReached),
+      studentsReached: act.studentsReached == null ? "" : String(act.studentsReached),
+      schoolsReached: act.schoolsReached == null ? "" : String(act.schoolsReached),
+      notes: act.notes ?? "",
+      testimonial: act.testimonial ?? "",
+      testimonialBy: act.testimonialBy ?? "",
+    });
+  }
+
+  function startExpenseEdit(exp: (typeof expenses)[number]) {
+    setEditingExpenseId(exp._id);
+    setExpenseEditForm({
+      categoryId: exp.categoryId,
+      spentOn: exp.spentOn,
+      amount: String(exp.amount),
+      description: exp.description,
+      paymentMode: exp.paymentMode ?? "",
+      status: exp.status,
+    });
   }
 
   if (project === undefined) return (
@@ -463,6 +597,7 @@ export default function ProjectDetailPage() {
   const pm = people.find((p) => p._id === project.programManagerId);
   const am = people.find((p) => p._id === project.accountManagerId);
   const submittedExpenses = expenses.filter((e) => e.status === "submitted");
+  const canEditProject = Boolean(me);
 
   const tabs = ([
     { id: "deliverables", label: "Deliverables", icon: ClipboardList },
@@ -521,7 +656,7 @@ export default function ProjectDetailPage() {
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold uppercase text-muted-foreground">Grant Amount</label>
-                    <Input type="number" value={editForm.grantAmount} onChange={(e) => setEditForm({ ...editForm, grantAmount: Number(e.target.value) })} />
+                    <Input type="number" value={editForm.grantAmount} onChange={(e) => setEditForm({ ...editForm, grantAmount: e.target.value })} />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold uppercase text-muted-foreground">Duration</label>
@@ -530,18 +665,38 @@ export default function ProjectDetailPage() {
                       <Input type="date" value={editForm.endDate} onChange={(e) => setEditForm({ ...editForm, endDate: e.target.value })} />
                     </div>
                   </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase text-muted-foreground">States</label>
+                    <Input value={editForm.states} onChange={(e) => setEditForm({ ...editForm, states: e.target.value })} placeholder="Karnataka, Maharashtra" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase text-muted-foreground">Status</label>
+                    <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value as ProjectStatus })}>
+                      {projectStatusOptions.map((status) => <option key={status} value={status}>{label(status)}</option>)}
+                    </select>
+                  </div>
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold uppercase text-muted-foreground">Summary</label>
                   <Textarea value={editForm.summary} onChange={(e) => setEditForm({ ...editForm, summary: e.target.value })} />
                 </div>
                 <div className="flex gap-2">
-                  <Button size="sm" onClick={() => run("save-project", async () => { 
-                    await updateProject({ 
-                      projectId, 
-                      updates: { ...editForm, funderLogoStorageId: logoStorageId as any } 
-                    }); 
-                    setIsEditing(false); 
+                  <Button size="sm" disabled={busy === "save-project" || !editForm.name || !editForm.funderName || !editForm.startDate || !editForm.endDate} onClick={() => run("save-project", async () => {
+                    await updateProject({
+                      projectId,
+                      updates: {
+                        name: editForm.name,
+                        funderName: editForm.funderName,
+                        grantAmount: Number(editForm.grantAmount || 0),
+                        startDate: editForm.startDate,
+                        endDate: editForm.endDate,
+                        states: editForm.states.split(",").map((state) => state.trim()).filter(Boolean),
+                        status: editForm.status,
+                        summary: editForm.summary,
+                        ...(logoStorageId ? { funderLogoStorageId: logoStorageId as Id<"_storage"> } : {}),
+                      },
+                    });
+                    setIsEditing(false);
                   })}>
                     {busy === "save-project" ? <Loader2 className="size-4 animate-spin mr-2" /> : <Save className="size-4 mr-2" />}
                     Save Changes
@@ -584,7 +739,7 @@ export default function ProjectDetailPage() {
             {!isEditing && (
               <>
                 <InfographicPromptDialog project={project} milestones={milestones} />
-                {canAdminister && (
+                {canEditProject && (
                   <Button variant="outline" size="sm" onClick={startEditing}><Edit3 className="size-4 mr-2" /> Edit</Button>
                 )}
               </>
@@ -693,23 +848,89 @@ export default function ProjectDetailPage() {
                 <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No deliverables recorded.</div>
               ) : project.deliverables.map((item) => (
                 <div key={item._id} className="rounded-lg border p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
-                      <div className="font-medium text-sm">{item.title}</div>
-                      {item.description && <div className="text-xs text-muted-foreground mt-0.5">{item.description}</div>}
-                      <div className="text-xs text-muted-foreground mt-1">Due: {item.dueDate}</div>
-                    </div>
-                    <Badge variant="outline" className={statusStyles[item.status] ?? statusStyles.info}>{label(item.status)}</Badge>
-                  </div>
-                  {item.target != null && (
-                    <div className="mt-3 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Input type="number" defaultValue={item.achieved ?? 0} className="h-8 w-28"
-                          onBlur={(e) => updateDeliverableProgress({ deliverableId: item._id, achieved: Number(e.target.value || 0) })} />
-                        <span className="text-sm text-muted-foreground">/ {item.target} {item.unit}</span>
+                  {editingDeliverableId === item._id ? (
+                    <div className="space-y-3">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="sm:col-span-2 space-y-1">
+                          <label className="text-[10px] uppercase text-muted-foreground">Title</label>
+                          <Input value={deliverableEditForm.title} onChange={(e) => setDeliverableEditForm({ ...deliverableEditForm, title: e.target.value })} />
+                        </div>
+                        <div className="sm:col-span-2 space-y-1">
+                          <label className="text-[10px] uppercase text-muted-foreground">Description</label>
+                          <Textarea rows={2} value={deliverableEditForm.description} onChange={(e) => setDeliverableEditForm({ ...deliverableEditForm, description: e.target.value })} />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] uppercase text-muted-foreground">Target</label>
+                          <Input type="number" value={deliverableEditForm.target} onChange={(e) => setDeliverableEditForm({ ...deliverableEditForm, target: e.target.value })} />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] uppercase text-muted-foreground">Achieved</label>
+                          <Input type="number" value={deliverableEditForm.achieved} onChange={(e) => setDeliverableEditForm({ ...deliverableEditForm, achieved: e.target.value })} />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] uppercase text-muted-foreground">Unit</label>
+                          <Input value={deliverableEditForm.unit} onChange={(e) => setDeliverableEditForm({ ...deliverableEditForm, unit: e.target.value })} />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] uppercase text-muted-foreground">Due Date</label>
+                          <Input type="date" value={deliverableEditForm.dueDate} onChange={(e) => setDeliverableEditForm({ ...deliverableEditForm, dueDate: e.target.value })} />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] uppercase text-muted-foreground">Status</label>
+                          <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={deliverableEditForm.status} onChange={(e) => setDeliverableEditForm({ ...deliverableEditForm, status: e.target.value as DeliverableStatus })}>
+                            {deliverableStatusOptions.map((status) => <option key={status} value={status}>{label(status)}</option>)}
+                          </select>
+                        </div>
                       </div>
-                      <Progress value={((item.achieved ?? 0) / Math.max(item.target, 1)) * 100} />
+                      <div className="flex gap-2">
+                        <Button size="sm" disabled={busy === `deliverable-${item._id}` || !deliverableEditForm.title || !deliverableEditForm.dueDate}
+                          onClick={() => run(`deliverable-${item._id}`, async () => {
+                            await updateDeliverable({
+                              deliverableId: item._id,
+                              updates: {
+                                title: deliverableEditForm.title,
+                                description: deliverableEditForm.description,
+                                target: Number(deliverableEditForm.target || 0),
+                                achieved: Number(deliverableEditForm.achieved || 0),
+                                unit: deliverableEditForm.unit,
+                                dueDate: deliverableEditForm.dueDate,
+                                status: deliverableEditForm.status,
+                              },
+                            });
+                            setEditingDeliverableId(null);
+                          })}>
+                          {busy === `deliverable-${item._id}` ? <Loader2 className="size-4 animate-spin mr-2" /> : <Save className="size-4 mr-2" />}
+                          Save
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditingDeliverableId(null)}>Cancel</Button>
+                      </div>
                     </div>
+                  ) : (
+                    <>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1">
+                          <div className="font-medium text-sm">{item.title}</div>
+                          {item.description && <div className="text-xs text-muted-foreground mt-0.5">{item.description}</div>}
+                          <div className="text-xs text-muted-foreground mt-1">Due: {item.dueDate}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className={statusStyles[item.status] ?? statusStyles.info}>{label(item.status)}</Badge>
+                          <Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => startDeliverableEdit(item)}>
+                            <Edit3 className="size-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                      {item.target != null && (
+                        <div className="mt-3 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Input type="number" defaultValue={item.achieved ?? 0} className="h-8 w-28"
+                              onBlur={(e) => updateDeliverableProgress({ deliverableId: item._id, achieved: Number(e.target.value || 0) })} />
+                            <span className="text-sm text-muted-foreground">/ {item.target} {item.unit}</span>
+                          </div>
+                          <Progress value={((item.achieved ?? 0) / Math.max(item.target, 1)) * 100} />
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               ))}
@@ -745,8 +966,55 @@ export default function ProjectDetailPage() {
                         {(act.schoolsReached ?? 0) > 0 && <span>🏫 {act.schoolsReached} schools</span>}
                       </div>
                     </div>
-                    <ActivityEvidenceUpload activityId={act._id} />
+                    <div className="flex items-center gap-2">
+                      <ActivityEvidenceUpload activityId={act._id} />
+                      <Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => startActivityEdit(act)}>
+                        <Edit3 className="size-3.5" />
+                      </Button>
+                    </div>
                   </div>
+
+                  {editingActivityId === act._id && (
+                    <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Input placeholder="Activity title" value={activityEditForm.title} onChange={(e) => setActivityEditForm({ ...activityEditForm, title: e.target.value })} />
+                        <Input type="date" value={activityEditForm.activityDate} onChange={(e) => setActivityEditForm({ ...activityEditForm, activityDate: e.target.value })} />
+                        <Input placeholder="State" value={activityEditForm.state} onChange={(e) => setActivityEditForm({ ...activityEditForm, state: e.target.value })} />
+                        <Input placeholder="Location" value={activityEditForm.location} onChange={(e) => setActivityEditForm({ ...activityEditForm, location: e.target.value })} />
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <Input placeholder="Teachers" type="number" value={activityEditForm.teachersReached} onChange={(e) => setActivityEditForm({ ...activityEditForm, teachersReached: e.target.value })} />
+                        <Input placeholder="Students" type="number" value={activityEditForm.studentsReached} onChange={(e) => setActivityEditForm({ ...activityEditForm, studentsReached: e.target.value })} />
+                        <Input placeholder="Schools" type="number" value={activityEditForm.schoolsReached} onChange={(e) => setActivityEditForm({ ...activityEditForm, schoolsReached: e.target.value })} />
+                      </div>
+                      <Textarea rows={2} placeholder="Notes / observations" value={activityEditForm.notes} onChange={(e) => setActivityEditForm({ ...activityEditForm, notes: e.target.value })} />
+                      <Textarea rows={2} placeholder="Testimonial quote" value={activityEditForm.testimonial} onChange={(e) => setActivityEditForm({ ...activityEditForm, testimonial: e.target.value })} />
+                      <Input placeholder="Name & role of person" value={activityEditForm.testimonialBy} onChange={(e) => setActivityEditForm({ ...activityEditForm, testimonialBy: e.target.value })} className="h-8" />
+                      <div className="flex gap-2">
+                        <Button size="sm" disabled={busy === `activity-${act._id}` || !activityEditForm.title || !activityEditForm.activityDate}
+                          onClick={() => run(`activity-${act._id}`, async () => {
+                            await updateActivity({
+                              activityId: act._id,
+                              title: activityEditForm.title,
+                              activityDate: activityEditForm.activityDate,
+                              state: activityEditForm.state,
+                              location: activityEditForm.location,
+                              teachersReached: Number(activityEditForm.teachersReached || 0),
+                              studentsReached: Number(activityEditForm.studentsReached || 0),
+                              schoolsReached: Number(activityEditForm.schoolsReached || 0),
+                              notes: activityEditForm.notes,
+                              testimonial: activityEditForm.testimonial,
+                              testimonialBy: activityEditForm.testimonialBy,
+                            });
+                            setEditingActivityId(null);
+                          })}>
+                          {busy === `activity-${act._id}` ? <Loader2 className="size-3 animate-spin mr-1" /> : <Save className="size-3 mr-1" />}
+                          Save
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditingActivityId(null)}>Cancel</Button>
+                      </div>
+                    </div>
+                  )}
 
                   {act.notes && <p className="text-sm text-muted-foreground border-l-2 pl-3">{act.notes}</p>}
 
@@ -804,6 +1072,7 @@ export default function ProjectDetailPage() {
             <CardHeader><CardTitle>Log Activity</CardTitle><CardDescription>Record field evidence for reports.</CardDescription></CardHeader>
             <CardContent className="space-y-3">
               <Input placeholder="Activity title *" value={activityForm.title} onChange={(e) => setActivityForm({ ...activityForm, title: e.target.value })} />
+              <Input type="date" value={activityForm.activityDate} onChange={(e) => setActivityForm({ ...activityForm, activityDate: e.target.value })} />
               <div className="grid grid-cols-2 gap-2">
                 <Input placeholder="State" value={activityForm.state} onChange={(e) => setActivityForm({ ...activityForm, state: e.target.value })} />
                 <Input placeholder="Location" value={activityForm.location} onChange={(e) => setActivityForm({ ...activityForm, location: e.target.value })} />
@@ -821,8 +1090,8 @@ export default function ProjectDetailPage() {
               </div>
               <Button className="w-full" disabled={busy === "activity" || !activityForm.title}
                 onClick={() => run("activity", async () => {
-                  await logActivity({ projectId, title: activityForm.title, activityDate: new Date().toISOString().slice(0, 10), state: activityForm.state || undefined, location: activityForm.location || undefined, teachersReached: activityForm.teachersReached ? Number(activityForm.teachersReached) : undefined, studentsReached: activityForm.studentsReached ? Number(activityForm.studentsReached) : undefined, schoolsReached: activityForm.schoolsReached ? Number(activityForm.schoolsReached) : undefined, notes: activityForm.notes || undefined, testimonial: activityForm.testimonial || undefined, testimonialBy: activityForm.testimonialBy || undefined });
-                  setActivityForm({ title: "", location: "", state: "", teachersReached: "", studentsReached: "", schoolsReached: "", notes: "", testimonial: "", testimonialBy: "" });
+                  await logActivity({ projectId, title: activityForm.title, activityDate: activityForm.activityDate || todayIso(), state: activityForm.state || undefined, location: activityForm.location || undefined, teachersReached: activityForm.teachersReached ? Number(activityForm.teachersReached) : undefined, studentsReached: activityForm.studentsReached ? Number(activityForm.studentsReached) : undefined, schoolsReached: activityForm.schoolsReached ? Number(activityForm.schoolsReached) : undefined, notes: activityForm.notes || undefined, testimonial: activityForm.testimonial || undefined, testimonialBy: activityForm.testimonialBy || undefined });
+                  setActivityForm({ title: "", activityDate: todayIso(), location: "", state: "", teachersReached: "", studentsReached: "", schoolsReached: "", notes: "", testimonial: "", testimonialBy: "" });
                 })}>
                 {busy === "activity" ? <Loader2 className="size-4 animate-spin mr-2" /> : <Plus className="size-4 mr-2" />}
                 Save Activity
@@ -889,11 +1158,49 @@ export default function ProjectDetailPage() {
                       <div className="absolute top-0 right-0 p-2 opacity-10">
                         <MessageSquare className="size-12" />
                       </div>
-                      <p className="text-base italic leading-relaxed text-slate-700 dark:text-slate-300">"{t.content}"</p>
-                      <div>
-                        <div className="font-semibold text-sm">{t.author}</div>
-                        {t.role && <div className="text-xs text-muted-foreground">{t.role}</div>}
-                      </div>
+                      {editingImpactId === t._id ? (
+                        <div className="relative z-10 space-y-3">
+                          <Textarea rows={4} value={impactEditForm.content} onChange={(e) => setImpactEditForm({ ...impactEditForm, content: e.target.value })} />
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <Input value={impactEditForm.author} onChange={(e) => setImpactEditForm({ ...impactEditForm, author: e.target.value })} />
+                            <Input value={impactEditForm.role} onChange={(e) => setImpactEditForm({ ...impactEditForm, role: e.target.value })} />
+                          </div>
+                          <div className="flex gap-2">
+                            <Button size="sm" disabled={busy === `impact-${t._id}` || !impactEditForm.content || !impactEditForm.author}
+                              onClick={() => run(`impact-${t._id}`, async () => {
+                                await updateTestimonialRecord({
+                                  testimonialId: t._id,
+                                  updates: {
+                                    content: impactEditForm.content,
+                                    author: impactEditForm.author,
+                                    role: impactEditForm.role,
+                                  },
+                                });
+                                setEditingImpactId(null);
+                              })}>
+                              {busy === `impact-${t._id}` ? <Loader2 className="size-3 animate-spin mr-1" /> : <Save className="size-3 mr-1" />}
+                              Save
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setEditingImpactId(null)}>Cancel</Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="text-base italic leading-relaxed text-slate-700 dark:text-slate-300">"{t.content}"</p>
+                          <div>
+                            <div className="font-semibold text-sm">{t.author}</div>
+                            {t.role && <div className="text-xs text-muted-foreground">{t.role}</div>}
+                          </div>
+                          <div className="relative z-10 flex gap-2">
+                            <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => { setEditingImpactId(t._id); setImpactEditForm({ content: t.content, author: t.author, role: t.role ?? "" }); }}>
+                              <Edit3 className="size-3.5" />
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-red-600" onClick={() => run(`remove-impact-${t._id}`, () => removeTestimonial({ testimonialId: t._id }))}>
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -938,14 +1245,37 @@ export default function ProjectDetailPage() {
                             <ImageIcon className="size-8" />
                           </div>
                         )}
-                        <button 
-                          className="absolute top-2 right-2 p-1.5 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500"
-                          onClick={() => removeGalleryItem({ galleryId: item._id })}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
+                        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            className="rounded-full bg-black/50 p-1.5 text-white hover:bg-primary"
+                            onClick={() => { setEditingGalleryId(item._id); setGalleryEditForm({ caption: item.caption ?? "", description: item.description ?? "" }); }}
+                          >
+                            <Edit3 className="size-3.5" />
+                          </button>
+                          <button
+                            className="rounded-full bg-black/50 p-1.5 text-white hover:bg-red-500"
+                            onClick={() => removeGalleryItem({ galleryId: item._id })}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
                       </div>
-                      {(item.caption || item.description) && (
+                      {editingGalleryId === item._id ? (
+                        <div className="space-y-2 border-t p-3">
+                          <Input value={galleryEditForm.caption} onChange={(e) => setGalleryEditForm({ ...galleryEditForm, caption: e.target.value })} placeholder="Caption" />
+                          <Textarea rows={2} value={galleryEditForm.description} onChange={(e) => setGalleryEditForm({ ...galleryEditForm, description: e.target.value })} placeholder="Description" />
+                          <div className="flex gap-2">
+                            <Button size="sm" disabled={busy === `gallery-${item._id}`} onClick={() => run(`gallery-${item._id}`, async () => {
+                              await updateGalleryItem({ galleryId: item._id, updates: { caption: galleryEditForm.caption, description: galleryEditForm.description } });
+                              setEditingGalleryId(null);
+                            })}>
+                              {busy === `gallery-${item._id}` ? <Loader2 className="size-3 animate-spin mr-1" /> : <Save className="size-3 mr-1" />}
+                              Save
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setEditingGalleryId(null)}>Cancel</Button>
+                          </div>
+                        </div>
+                      ) : (item.caption || item.description) && (
                         <div className="p-3 border-t">
                           {item.caption && <div className="font-semibold text-sm">{item.caption}</div>}
                           {item.description && <p className="text-xs text-muted-foreground mt-1">{item.description}</p>}
@@ -1019,7 +1349,8 @@ export default function ProjectDetailPage() {
                   {expenses.map((exp) => {
                     const category = project.budgets.find((b) => b._id === exp.categoryId);
                     return (
-                      <div key={exp._id} className="flex items-center justify-between gap-4 rounded-lg border p-3">
+                      <div key={exp._id} className="rounded-lg border p-3 space-y-3">
+                        <div className="flex items-center justify-between gap-4">
                         <div className="flex-1 min-w-0">
                           <div className="font-medium text-sm truncate">{exp.description}</div>
                           <div className="text-xs text-muted-foreground">
@@ -1031,6 +1362,9 @@ export default function ProjectDetailPage() {
                           <Badge variant="outline" className={statusStyles[exp.status] ?? statusStyles.info}>
                             {label(exp.status)}
                           </Badge>
+                          <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => startExpenseEdit(exp)}>
+                            <Edit3 className="size-3.5" />
+                          </Button>
                           {exp.status === "submitted" && (
                             <>
                               <Button
@@ -1054,6 +1388,44 @@ export default function ProjectDetailPage() {
                             </>
                           )}
                         </div>
+                        </div>
+                        {editingExpenseId === exp._id && (
+                          <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <select className="h-9 rounded-md border bg-background px-3 text-sm" value={expenseEditForm.categoryId} onChange={(e) => setExpenseEditForm({ ...expenseEditForm, categoryId: e.target.value })}>
+                                {project.budgets.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
+                              </select>
+                              <Input type="date" value={expenseEditForm.spentOn} onChange={(e) => setExpenseEditForm({ ...expenseEditForm, spentOn: e.target.value })} />
+                              <Input type="number" value={expenseEditForm.amount} onChange={(e) => setExpenseEditForm({ ...expenseEditForm, amount: e.target.value })} />
+                              <select className="h-9 rounded-md border bg-background px-3 text-sm" value={expenseEditForm.status} onChange={(e) => setExpenseEditForm({ ...expenseEditForm, status: e.target.value as ExpenseStatus })}>
+                                {expenseStatusOptions.map((status) => <option key={status} value={status}>{label(status)}</option>)}
+                              </select>
+                            </div>
+                            <Input value={expenseEditForm.description} onChange={(e) => setExpenseEditForm({ ...expenseEditForm, description: e.target.value })} />
+                            <Input placeholder="Payment mode" value={expenseEditForm.paymentMode} onChange={(e) => setExpenseEditForm({ ...expenseEditForm, paymentMode: e.target.value })} />
+                            <div className="flex gap-2">
+                              <Button size="sm" disabled={busy === `expense-${exp._id}` || !expenseEditForm.categoryId || !expenseEditForm.spentOn || !expenseEditForm.amount || !expenseEditForm.description}
+                                onClick={() => run(`expense-${exp._id}`, async () => {
+                                  await updateExpense({
+                                    expenseId: exp._id,
+                                    updates: {
+                                      categoryId: expenseEditForm.categoryId as Id<"budgetCategories">,
+                                      spentOn: expenseEditForm.spentOn,
+                                      amount: Number(expenseEditForm.amount || 0),
+                                      description: expenseEditForm.description,
+                                      paymentMode: expenseEditForm.paymentMode,
+                                      status: expenseEditForm.status,
+                                    },
+                                  });
+                                  setEditingExpenseId(null);
+                                })}>
+                                {busy === `expense-${exp._id}` ? <Loader2 className="size-3 animate-spin mr-1" /> : <Save className="size-3 mr-1" />}
+                                Save
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => setEditingExpenseId(null)}>Cancel</Button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1095,6 +1467,11 @@ export default function ProjectDetailPage() {
                     onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
                   />
                   <Input
+                    type="date"
+                    value={expenseForm.spentOn}
+                    onChange={(e) => setExpenseForm({ ...expenseForm, spentOn: e.target.value })}
+                  />
+                  <Input
                     placeholder="Payment mode (NEFT, Cash…)"
                     value={expenseForm.paymentMode}
                     onChange={(e) => setExpenseForm({ ...expenseForm, paymentMode: e.target.value })}
@@ -1108,12 +1485,12 @@ export default function ProjectDetailPage() {
                         await recordExpense({
                           projectId,
                           categoryId: activeBudget._id,
-                          spentOn: new Date().toISOString().slice(0, 10),
+                          spentOn: expenseForm.spentOn || todayIso(),
                           amount: Number(expenseForm.amount),
                           description: expenseForm.description,
                           paymentMode: expenseForm.paymentMode || undefined,
                         });
-                        setExpenseForm({ amount: "", description: "", paymentMode: "" });
+                        setExpenseForm({ spentOn: todayIso(), amount: "", description: "", paymentMode: "" });
                       })
                     }
                   >

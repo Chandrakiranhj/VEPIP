@@ -57,6 +57,59 @@ export const addGalleryItem = mutation({
   },
 });
 
+export const updateTestimonial = mutation({
+  args: {
+    testimonialId: v.id("testimonials"),
+    updates: v.object({
+      content: v.optional(v.string()),
+      author: v.optional(v.string()),
+      role: v.optional(v.string()),
+    }),
+  },
+  handler: async (ctx, args) => {
+    const item = await ctx.db.get(args.testimonialId);
+    if (!item) throw new Error("Testimonial not found");
+
+    const { person } = await requireCurrentPerson(ctx);
+    await requireProjectAccess(ctx, person, item.projectId);
+
+    await ctx.db.patch(args.testimonialId, args.updates);
+    await scheduleTestimonialIngestion(ctx, args.testimonialId);
+  },
+});
+
+export const removeTestimonial = mutation({
+  args: { testimonialId: v.id("testimonials") },
+  handler: async (ctx, args) => {
+    const item = await ctx.db.get(args.testimonialId);
+    if (!item) throw new Error("Testimonial not found");
+
+    const { person } = await requireCurrentPerson(ctx);
+    await requireProjectAccess(ctx, person, item.projectId);
+
+    await ctx.db.delete(args.testimonialId);
+  },
+});
+
+export const updateGalleryItem = mutation({
+  args: {
+    galleryId: v.id("gallery"),
+    updates: v.object({
+      caption: v.optional(v.string()),
+      description: v.optional(v.string()),
+    }),
+  },
+  handler: async (ctx, args) => {
+    const item = await ctx.db.get(args.galleryId);
+    if (!item) throw new Error("Gallery item not found");
+
+    const { person } = await requireCurrentPerson(ctx);
+    await requireProjectAccess(ctx, person, item.projectId);
+
+    await ctx.db.patch(args.galleryId, args.updates);
+  },
+});
+
 export const addTestimonialInternal = internalMutation({
   args: {
     projectId: v.id("projects"),
