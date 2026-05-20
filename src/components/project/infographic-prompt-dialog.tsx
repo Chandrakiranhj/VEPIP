@@ -256,7 +256,7 @@ DESIGN FREEDOM & CONSTRAINTS:
         )}
       </DialogTrigger>
       
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-2">
             <div className="p-1.5 rounded bg-primary/10 text-primary">
