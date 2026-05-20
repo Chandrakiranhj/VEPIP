@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 
 import { Authenticated, AuthLoading, Unauthenticated, useMutation, useQuery } from "convex/react";
-import { Banknote, Bell, CalendarDays, CheckCircle2, FileText, Loader2, LogOut, Sparkles } from "lucide-react";
+import { Banknote, Bell, CheckCircle2, FileText, Loader2, LogOut, Sparkles } from "lucide-react";
 
 import { api } from "../../../../convex/_generated/api";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { authClient } from "@/lib/auth-client";
 import { IndiaMap } from "@/components/india-map";
-import { fiscalYearForDate, fiscalYearLabel } from "@/lib/fiscal-year";
 
 const money = new Intl.NumberFormat("en-IN", {
   maximumFractionDigits: 1,
@@ -58,45 +57,23 @@ function AuthenticatedDashboard() {
   const ensureCurrentUser = useMutation(api.people.ensureCurrentUser);
   const currentPerson = useQuery(api.people.current);
   const portfolio = useQuery(api.projects.listPortfolio, currentPerson ? {} : "skip");
-  const [fiscalYear, setFiscalYear] = useState(() => fiscalYearForDate(new Date()));
-  const projects = portfolio ?? [];
+  const projects = useMemo(() => portfolio ?? [], [portfolio]);
 
   useEffect(() => {
     void ensureCurrentUser();
   }, [ensureCurrentUser]);
 
-  const fiscalYearOptions = useMemo(() => {
-    const years = new Set<string>([fiscalYearForDate(new Date())]);
-    for (const project of projects) {
-      for (const row of project.fiscalYears ?? []) years.add(row.fiscalYear);
-      for (const report of project.reports ?? []) {
-        if (report.fiscalYear) years.add(report.fiscalYear);
-      }
-    }
-    return Array.from(years).sort();
-  }, [projects]);
-
-  const projectFyAmount = (project: (typeof projects)[number]) =>
-    project.fyBudgetAllocations?.find((row) => row.fiscalYear === fiscalYear)?.amount ?? 0;
-
-  const fyProjects = projects.filter((project) =>
-    project.fiscalYears?.some((row) => row.fiscalYear === fiscalYear) ||
-    project.reports?.some((report) => report.fiscalYear === fiscalYear),
-  );
-  const metricProjects = currentPerson?.canSeeAllProjects ? fyProjects : projects;
+  // Show every project the viewer is authorized to see — admins/leadership get
+  // the whole portfolio, everyone else gets their assigned projects. Totals are
+  // the real committed grant and spend across that set (no fiscal-year gating;
+  // FY analytics live on the dedicated Funds page).
+  const metricProjects = projects;
   const allDeliverables = metricProjects.flatMap((project) =>
     project.deliverables.map((deliverable) => ({ ...deliverable, projectName: project.name })),
   );
   const allAlerts = metricProjects.flatMap((project) => project.alerts.map((alert) => ({ ...alert, projectName: project.name })));
-  const portfolioBudget = currentPerson?.canSeeAllProjects
-    ? fyProjects.reduce((total, project) => total + projectFyAmount(project), 0)
-    : projects.reduce((total, project) => total + project.grantAmount, 0);
-  const portfolioSpent = currentPerson?.canSeeAllProjects
-    ? fyProjects.reduce((total, project) => {
-        const fraction = project.grantAmount > 0 ? projectFyAmount(project) / project.grantAmount : 0;
-        return total + project.spentBudget * fraction;
-      }, 0)
-    : projects.reduce((total, project) => total + project.spentBudget, 0);
+  const portfolioBudget = metricProjects.reduce((total, project) => total + (project.grantAmount ?? 0), 0);
+  const portfolioSpent = metricProjects.reduce((total, project) => total + (project.spentBudget ?? 0), 0);
   const allActiveStates = Array.from(new Set(metricProjects.flatMap((p) => p.states)));
 
   if (currentPerson === undefined || currentPerson === null) {
@@ -137,26 +114,8 @@ function AuthenticatedDashboard() {
             Sign out
           </Button>
         </div>
-        {currentPerson?.canSeeAllProjects && (
-          <div className="mt-5 flex flex-wrap items-center gap-3 rounded-lg border bg-background p-3">
-            <CalendarDays className="size-4 text-primary" />
-            <span className="text-sm font-medium">Fiscal year view</span>
-            <select
-              className="h-9 rounded-md border bg-background px-3 text-sm"
-              value={fiscalYear}
-              onChange={(event) => setFiscalYear(event.target.value)}
-            >
-              {fiscalYearOptions.map((fy) => (
-                <option key={fy} value={fy}>
-                  {fiscalYearLabel(fy)}
-                </option>
-              ))}
-            </select>
-            <span className="text-xs text-muted-foreground">Budgets are prorated Apr-Mar for multi-year projects.</span>
-          </div>
-        )}
         <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric label="Active grants" value={String(metricProjects.length)} helper={currentPerson?.canSeeAllProjects ? fiscalYearLabel(fiscalYear) : "Assigned projects"} icon={<FileText />} />
+          <Metric label="Active grants" value={String(metricProjects.length)} helper={currentPerson?.canSeeAllProjects ? "All organization grants" : "Assigned projects"} icon={<FileText />} />
           <Metric label="Budget monitored" value={money.format(portfolioBudget)} helper={`${Math.round((portfolioSpent / Math.max(portfolioBudget, 1)) * 100)}% utilized`} icon={<Banknote />} />
           <Metric label="Open alerts" value={String(allAlerts.length)} helper="Unresolved system checks" icon={<Bell />} />
           <Metric label="Deliverables" value={String(allDeliverables.length)} helper="Tracked commitments" icon={<CheckCircle2 />} />

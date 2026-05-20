@@ -36,6 +36,7 @@ function PeopleDirectory() {
   const removePerson = useMutation(api.people.remove);
 
   const [busy, setBusy] = useState<string | boolean>(false);
+  const canManage = currentPerson?.role === "admin" || currentPerson?.role === "leadership";
   const [form, setForm] = useState<{ name: string; email: string; role: PersonRole; password: string }>({
     name: "",
     email: "",
@@ -65,7 +66,7 @@ function PeopleDirectory() {
         <p className="text-muted-foreground mt-1">Manage team members who can be assigned to projects.</p>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
+      <div className={canManage ? "grid gap-6 xl:grid-cols-[1fr_360px]" : "grid gap-6"}>
         <Card className="rounded-lg">
           <CardHeader>
             <CardTitle>Team Members</CardTitle>
@@ -105,6 +106,7 @@ function PeopleDirectory() {
           </CardContent>
         </Card>
 
+        {canManage && (
         <Card className="rounded-lg sticky top-20 self-start">
           <CardHeader>
             <CardTitle>Add Person</CardTitle>
@@ -164,6 +166,7 @@ function PeopleDirectory() {
             </Button>
           </CardContent>
         </Card>
+        )}
       </div>
     </main>
   );

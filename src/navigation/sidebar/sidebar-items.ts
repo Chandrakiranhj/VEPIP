@@ -62,13 +62,11 @@ export const sidebarItems: NavGroup[] = [
         url: "/intake",
         icon: Sparkles,
         isNew: true,
-        adminOnly: true,
       },
       {
         title: "Generate Reports",
         url: "/reports",
         icon: FileText,
-        adminOnly: true,
       },
     ],
   },
@@ -80,6 +78,7 @@ export const sidebarItems: NavGroup[] = [
         title: "Funds & Analytics",
         url: "/dashboard/funds",
         icon: Banknote,
+        // Org-wide financials: admin, leadership, and finance only.
         adminOnly: true,
       },
     ],
@@ -92,19 +91,21 @@ export const sidebarItems: NavGroup[] = [
         title: "People",
         url: "/people",
         icon: Users,
-        adminOnly: true,
       },
     ],
   },
 ];
 
 export function getSidebarItemsForRole(role?: string | null): NavGroup[] {
-  const isAdmin = role === "admin";
+  // Admin, leadership, and finance see org-wide ("adminOnly") items like the
+  // financial command center. Everyone else sees the rest, scoped to the
+  // projects they're assigned to.
+  const isPrivileged = role === "admin" || role === "leadership" || role === "finance";
 
   return sidebarItems
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => isAdmin || !item.adminOnly),
+      items: group.items.filter((item) => isPrivileged || !item.adminOnly),
     }))
     .filter((group) => group.items.length > 0);
 }

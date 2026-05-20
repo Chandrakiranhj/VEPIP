@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalQuery, type MutationCtx, mutation, query } from "./_generated/server";
-import { canSeeAllProjects, requireCurrentPerson, requireLeadership, requireProjectAccess } from "./access";
+import { canSeeAllProjects, requireCurrentPerson, requireProjectAccess } from "./access";
 
 function pad2(n: number) {
   return String(n).padStart(2, "0");
@@ -187,7 +187,6 @@ export const createManual = mutation({
   },
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
 
     const now = Date.now();
     const fyBudgetRows = fyBudgetAllocations(args.grantAmount, args.startDate, args.endDate);
@@ -195,6 +194,9 @@ export const createManual = mutation({
     const id = await ctx.db.insert("projects", {
       ...args,
       status: "on_track",
+      // Non-privileged creators are auto-assigned as program manager so the
+      // project shows up in their scoped portfolio. Admin/leadership see all.
+      programManagerId: canSeeAllProjects(person) ? undefined : person._id,
       stateAllocations: equalStateAllocations(args.states),
       fiscalYears: enumerateFiscalYears(args.startDate, args.endDate),
       fyBudgetAllocations: fyBudgetRows,
@@ -214,10 +216,13 @@ export const createFromAiDraft = mutation({
   },
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
 
     const now = Date.now();
     const draft = args.draft;
+    // Non-privileged creators are auto-assigned as program manager (unless an
+    // explicit PM was passed) so the project lands in their scoped portfolio.
+    const programManagerId =
+      args.programManagerId ?? (canSeeAllProjects(person) ? undefined : person._id);
     // Normalise stateAllocations from the AI draft: drop zeros, renormalise.
     type AllocIn = { state?: unknown; fraction?: unknown };
     const rawAllocs: AllocIn[] = Array.isArray(draft.stateAllocations)
@@ -237,7 +242,7 @@ export const createFromAiDraft = mutation({
     const projectId = await ctx.db.insert("projects", {
       name: draft.projectName ?? "Untitled grant project",
       funderName: draft.funder?.name ?? draft.funderName ?? "Unknown funder",
-      programManagerId: args.programManagerId,
+      programManagerId,
       accountManagerId: args.accountManagerId,
       status: "on_track",
       grantAmount: Number(draft.grantAmount ?? 0),

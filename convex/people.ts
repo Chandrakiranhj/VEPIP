@@ -102,8 +102,9 @@ export const bootstrapSuperAdmin = mutation({
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    // The org directory is visible to any authenticated VE user. Mutations
+    // (add / updateRole / remove) remain gated by role hierarchy below.
+    await requireCurrentPerson(ctx);
     return ctx.db.query("people").collect();
   },
 });
