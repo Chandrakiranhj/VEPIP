@@ -19,6 +19,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { IndiaMap } from "@/components/india-map";
+import { InfographicPromptDialog } from "@/components/project/infographic-prompt-dialog";
 
 const money = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0, style: "currency", currency: "INR" });
 
@@ -365,6 +366,7 @@ export default function ProjectDetailPage() {
   const projectId = params.projectId as Id<"projects">;
 
   const project = useQuery(api.projects.getById, { projectId });
+  const milestones = useQuery(api.milestones.listByProject, { projectId }) ?? [];
   const me = useQuery(api.people.current);
   const people = useQuery(api.people.list) ?? [];
   const expenses = useQuery(api.operations.listExpenses, { projectId }) ?? [];
@@ -576,7 +578,12 @@ export default function ProjectDetailPage() {
             )}
           </div>
           <div className="flex gap-2">
-            {!isEditing && <Button variant="outline" size="sm" onClick={startEditing}><Edit3 className="size-4 mr-2" /> Edit</Button>}
+            {!isEditing && (
+              <>
+                <InfographicPromptDialog project={project} milestones={milestones} />
+                <Button variant="outline" size="sm" onClick={startEditing}><Edit3 className="size-4 mr-2" /> Edit</Button>
+              </>
+            )}
             <Button variant="outline" size="sm" onClick={() => router.push("/projects")}>← All Projects</Button>
           </div>
         </div>
