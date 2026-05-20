@@ -114,7 +114,7 @@ function AuthenticatedDashboard() {
           <div className="max-w-3xl space-y-3">
             <Badge variant="outline" className="gap-1">
               <Sparkles className="size-3" />
-              {currentPerson?.canSeeAllProjects ? "Admin View" : "My Project View"}
+              {currentPerson?.canSeeAllProjects ? "Organization View" : "My Project View"}
             </Badge>
             <div>
               <h1 className="font-semibold text-2xl tracking-tight md:text-3xl">

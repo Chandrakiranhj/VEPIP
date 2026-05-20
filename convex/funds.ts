@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireCurrentPerson, requireLeadership } from "./access";
+import { requireCurrentPerson, requireFinanceAccess } from "./access";
 
 // Triggering redeploy for FY-wise updates
 
@@ -12,7 +12,7 @@ export const seedStates = mutation({
   args: {},
   handler: async (ctx) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
 
     const states = [
       { name: "Karnataka", code: "KA" },
@@ -55,7 +55,7 @@ export const listStates = query({
   args: {},
   handler: async (ctx) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
     return await ctx.db.query("states").collect();
   },
 });
@@ -64,7 +64,7 @@ export const listSchools = query({
   args: { stateId: v.optional(v.id("states")) },
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
     const q = args.stateId
       ? ctx.db
           .query("schools")
@@ -78,7 +78,7 @@ export const listFunders = query({
   args: {},
   handler: async (ctx) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
     return await ctx.db.query("funders").collect();
   },
 });
@@ -87,7 +87,7 @@ export const getFinancialVisibility = query({
   args: { fiscalYear: v.string() }, // e.g. "2024-25"
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
     const visibility = await ctx.db
       .query("fundVisibility")
       .withIndex("by_fiscal_year", (q) => q.eq("fiscalYear", args.fiscalYear))
@@ -112,7 +112,7 @@ export const getRealVisibility = query({
   args: { fiscalYear: v.string() },
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
     const projects = await ctx.db.query("projects").collect();
     const [startYearStr, endYearStr] = args.fiscalYear.split("-");
     const startYear = parseInt("20" + startYearStr); 
@@ -192,7 +192,7 @@ export const getFyExpenditures = query({
   args: { fiscalYear: v.string() },
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
     return await ctx.db
       .query("fyExpenditure")
       .withIndex("by_fiscal_year", (q) => q.eq("fiscalYear", args.fiscalYear))
@@ -204,7 +204,7 @@ export const getRealStateSpending = query({
   args: { fiscalYear: v.string() }, // e.g. "24-25"
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
     const projects = await ctx.db.query("projects").collect();
     const states = await ctx.db.query("states").collect();
     
@@ -259,7 +259,7 @@ export const upsertFyExpenditure = mutation({
   },
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
 
     const existing = await ctx.db
       .query("fyExpenditure")
@@ -297,7 +297,7 @@ export const upsertVisibility = mutation({
   },
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
 
     const existing = await ctx.db
       .query("fundVisibility")
@@ -328,7 +328,7 @@ export const addSchool = mutation({
   },
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
 
     return await ctx.db.insert("schools", {
       ...args,
@@ -341,7 +341,7 @@ export const removeSchool = mutation({
   args: { schoolId: v.id("schools") },
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
     await ctx.db.delete(args.schoolId);
   },
 });
@@ -350,7 +350,7 @@ export const addState = mutation({
   args: { name: v.string(), code: v.string() },
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
     return await ctx.db.insert("states", { name: args.name, code: args.code });
   },
 });
@@ -359,7 +359,7 @@ export const removeState = mutation({
   args: { stateId: v.id("states") },
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
     
     // Cleanup linked items
     const schools = await ctx.db.query("schools").withIndex("by_state", q => q.eq("stateId", args.stateId)).collect();
@@ -376,7 +376,7 @@ export const removeVisibility = mutation({
   args: { visibilityId: v.id("fundVisibility") },
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
     await ctx.db.delete(args.visibilityId);
   },
 });
@@ -385,7 +385,7 @@ export const getComparativeAnalysis = query({
   args: { fiscalYear: v.string() },
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
     const expenditures = await ctx.db
       .query("fyExpenditure")
       .withIndex("by_fiscal_year", (q) => q.eq("fiscalYear", args.fiscalYear))

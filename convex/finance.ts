@@ -10,7 +10,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
-import { requireCurrentPerson, requireLeadership } from "./access";
+import { requireCurrentPerson, requireFinanceAccess } from "./access";
 
 // ── Fiscal year helpers ─────────────────────────────────────────────────────
 
@@ -102,7 +102,7 @@ export const getOrgFinancialOverview = query({
   args: { fiscalYear: v.optional(v.string()) },
   handler: async (ctx, { fiscalYear }) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
     const projects = await ctx.db.query("projects").collect();
     const allBudgets = await ctx.db.query("budgetCategories").collect();
     const allExpenses = await ctx.db.query("expenses").collect();
@@ -178,7 +178,7 @@ export const getStatewiseCoverage = query({
   args: { fiscalYear: v.string() },
   handler: async (ctx, { fiscalYear }) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
     const fyStart = fyStartDate(fiscalYear);
     const fyEnd = fyEndDate(fiscalYear);
 
@@ -294,7 +294,7 @@ export const getMultiYearTargetMatrix = query({
   args: { fromFy: v.string(), toFy: v.string() },
   handler: async (ctx, { fromFy, toFy }) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
     const fromStart = parseInt(fromFy.split("-")[0], 10);
     const toStart = parseInt(toFy.split("-")[0], 10);
     if (Number.isNaN(fromStart) || Number.isNaN(toStart) || toStart < fromStart) {
@@ -377,7 +377,7 @@ export const setStateAnnualTarget = mutation({
   },
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
 
     const existing = await ctx.db
       .query("stateAnnualTargets")
@@ -411,7 +411,7 @@ export const removeStateAnnualTarget = mutation({
   args: { targetId: v.id("stateAnnualTargets") },
   handler: async (ctx, { targetId }) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
     await ctx.db.delete(targetId);
   },
 });
@@ -425,7 +425,7 @@ export const setProjectStateAllocations = mutation({
   },
   handler: async (ctx, { projectId, allocations }) => {
     const { person } = await requireCurrentPerson(ctx);
-    requireLeadership(person);
+    requireFinanceAccess(person);
 
     // Normalise: drop zeros, ensure they sum to ~1 (warn if not).
     const cleaned = allocations.filter((a) => a.fraction > 0);
