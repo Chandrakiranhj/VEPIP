@@ -102,12 +102,35 @@ export function InfographicPromptDialog({ project, milestones, trigger }: Infogr
     return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(amount);
   };
 
-  const getDurationString = () => {
-    if (project.startDate && project.endDate) {
-      return `${project.startDate} to ${project.endDate}`;
+  const getTimelineDetails = () => {
+    if (!project.startDate || !project.endDate) {
+      return { text: "Ongoing Project", elapsedPct: 0, showElapsed: false };
     }
-    return "Ongoing Project";
+    try {
+      const start = new Date(project.startDate);
+      const end = new Date(project.endDate);
+      const now = new Date();
+      const totalMs = end.getTime() - start.getTime();
+      const elapsedMs = now.getTime() - start.getTime();
+      if (totalMs <= 0) return { text: `${project.startDate} to ${project.endDate}`, elapsedPct: 0, showElapsed: false };
+      
+      const totalDays = Math.ceil(totalMs / (1000 * 60 * 60 * 24));
+      const elapsedDays = Math.max(0, Math.min(totalDays, Math.ceil(elapsedMs / (1000 * 60 * 60 * 24))));
+      const elapsedPct = Math.round((elapsedDays / totalDays) * 100);
+      
+      return {
+        text: `${project.startDate} to ${project.endDate} (${elapsedDays} of ${totalDays} days elapsed)`,
+        elapsedPct,
+        totalDays,
+        elapsedDays,
+        showElapsed: true
+      };
+    } catch (e) {
+      return { text: `${project.startDate} to ${project.endDate}`, elapsedPct: 0, showElapsed: false };
+    }
   };
+
+  const timeline = getTimelineDetails();
 
   const getOperatingStates = () => {
     if (project.states && project.states.length > 0) {
@@ -189,17 +212,14 @@ export function InfographicPromptDialog({ project, milestones, trigger }: Infogr
         .join("\n")}`
     : '   - A clean divider indicating upcoming program milestones.';
 
-  const projectSummary = project.summary 
-    ? project.summary 
-    : "Vision Empower's inclusive education initiative to bring accessible STEM resources, tactile learning kits, and computational thinking programs to visually impaired children in schools.";
-
   // Build the full prompt string (16:9 Landscape layout with specific Vision Empower visual cues)
   const generatedPrompt = `A wide 16:9 landscape-oriented, highly professional and modern minimalist infographic vector illustration for "Vision Empower" (an organization bringing inclusive STEM and computational thinking education to visually impaired children in India).
 
 CONTEXT:
-This infographic details the real-time status and achievements of the project: "${project.name}".
+This infographic is a project progress and status report designed for funders to see real-time performance.
+Project: "${project.name}"
 Supported by: ${project.funderName}
-Project Duration: ${getDurationString()}
+Project Duration: ${timeline.text}
 Active Regions: ${getOperatingStates()}
 Total Funding: ${totalBudgetStr}
 
@@ -214,11 +234,13 @@ COMPOSITION & VISUAL METAPHORS:
 - Visual Metaphor (Inclusive Education): Incorporate subtle abstract vector details representing sensory, tactile, and game-based learning. Examples: stylized hands exploring a 3D geometry shape or a tactile diagram, soft circular Braille dot motifs integrated into background shapes, and sound wave lines or puzzle piece blocks signifying computational thinking games.
 - Layout: 3 clear, distinct horizontal sections arranged side-by-side (Left third, Middle third, Right third) separated by neat negative space:
 
-1. LEFT THIRD (Project Identity):
-   - Large, prominent title: "${project.name}"
-   - Subtitle: "Supported by ${project.funderName}"
-   - A descriptive text box summarizing the project:
-     "${projectSummary}"
+1. LEFT THIRD (Project Identity & Timeline Track):
+   - Huge, elegant bold title text: "${project.name}"
+   - Subheading: "A progress report prepared for ${project.funderName}"
+   - A clean horizontal timeline progress indicator:
+     - "Timeline: ${timeline.text}"
+     - "Timeline Progress: ${timeline.elapsedPct}% Completed"
+     - "Target Scope: ${project.deliverablesTotal || 0} Deliverables across ${getOperatingStates()}"
 
 2. MIDDLE THIRD (Real-Time Impact Metrics):
    - A clean horizontal layout of 3 to 4 metric boxes. Each box has a simple, clean single-color vector icon (such as a tactile book, a teacher training workshop symbol, or a group of students) above a huge, high-contrast bold number.
@@ -232,7 +254,9 @@ ${metricsText}
      - A clean, flat linear progress indicator bar showing ${spentPct}% progress.
 ${milestonesText}
 
-DESIGN FREEDOM & CONSTRAINTS:
+DESIGN FREEDOM & CONSTRAINTS (CRITICAL):
+- DO NOT generate any corporate logos, brand insignia, organization emblems, or graphic icons meant to serve as logos. Keep the visual design clean and purely focus on data and illustrations.
+- 100% DATA ACCURACY: The numbers and labels (total budget, spent budget, spent percentage, deliverables target vs completed, timeline days/percent, and metrics) are exact. Render all numbers exactly as written.
 - Use clean, flat vector illustration style with absolutely NO photo elements, NO complex gradients, and NO cluttered details.
 - Provide a generous amount of empty space (negative space) around all text and icons for a premium, clean aesthetic.
 - Typesetting must be crisp, using a single highly legible sans-serif font.
