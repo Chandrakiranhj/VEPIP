@@ -36,3 +36,6 @@ next-dev*.log
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# retired DeerFlow sidecar checkout
+/deer-flow/

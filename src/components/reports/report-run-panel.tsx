@@ -200,14 +200,14 @@ export function ReportRunPanel({ request, onClose }: Props) {
           />
           <PhaseStep
             label="Drafting narrative"
-            sub="Gemini reasoning"
+            sub="Direct model API"
             phase="narrative"
             current={phase}
             icon={<Sparkles className="size-4" />}
           />
           <PhaseStep
             label="Rendering document"
-            sub="Python builder"
+            sub="VEPIP renderer"
             phase="rendering"
             current={phase}
             icon={<Terminal className="size-4" />}
@@ -223,8 +223,7 @@ export function ReportRunPanel({ request, onClose }: Props) {
         </div>
       )}
 
-      {/* Narrative collapsible (still useful when format != pdf so the user
-          can see what the agent wrote even before downloading) */}
+      {/* Narrative collapsible (still useful when format != pdf so the user can inspect the generated text before downloading). */}
       {Object.keys(narrativeBlocks).length > 0 ? (
         <details className="rounded-xl border bg-card" open={phase === "narrative"}>
           <summary className="cursor-pointer select-none px-5 py-3 text-sm font-medium flex items-center gap-2">
@@ -352,7 +351,7 @@ function LivePreview({
   const phaseLabel = {
     connecting: "Loading project data from Convex…",
     narrative: "Gemini is drafting your narrative…",
-    rendering: "Building your file in the Python sandbox…",
+    rendering: "Building your file inside VEPIP…",
     done: "Done.",
     error: "Something went wrong.",
   }[phase];

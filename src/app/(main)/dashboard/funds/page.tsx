@@ -32,7 +32,6 @@ import { StateManagement } from "./_components/state-management";
 
 // ── FY helpers ───────────────────────────────────────────────────────────────
 
-const CURRENT_FY = "26-27";
 const PLANNING_HORIZON = 7;
 
 function fyLabel(fy: string): string {
@@ -41,12 +40,20 @@ function fyLabel(fy: string): string {
   return `FY 20${a}-${b}`;
 }
 
+function fyForDate(date: Date): string {
+  const year = date.getFullYear();
+  const startYear = date.getMonth() >= 3 ? year : year - 1;
+  return `${String(startYear % 100).padStart(2, "0")}-${String((startYear + 1) % 100).padStart(2, "0")}`;
+}
+
 function nextFy(fy: string): string {
   const [a] = fy.split("-").map((p) => parseInt(p, 10));
   const next = a + 1;
   const after = a + 2;
   return `${String(next).padStart(2, "0")}-${String(after % 100).padStart(2, "0")}`;
 }
+
+const CURRENT_FY = fyForDate(new Date());
 
 function generateFyList(from: string, count: number): string[] {
   const out: string[] = [from];
@@ -153,7 +160,7 @@ export default function FundsPage() {
 // ── 1. Org-wide Overview ─────────────────────────────────────────────────────
 
 function OrgOverview({ fiscalYear }: { fiscalYear: string }) {
-  const overview = useQuery(api.finance.getOrgFinancialOverview, {});
+  const overview = useQuery(api.finance.getOrgFinancialOverview, { fiscalYear });
   const fyCoverage = useQuery(api.finance.getStatewiseCoverage, { fiscalYear });
 
   if (overview === undefined || fyCoverage === undefined) return <LoadingCard />;

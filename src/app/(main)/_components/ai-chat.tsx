@@ -385,6 +385,7 @@ export function AiChat({ projectId, projectName, userEmail }: ChatProps) {
   const [openCitation, setOpenCitation] = useState<Citation | null>(null);
   const [connectionLost, setConnectionLost] = useState(false);
   const [lastUserMessage, setLastUserMessage] = useState<string>("");
+  const [executingProposal, setExecutingProposal] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -552,14 +553,41 @@ export function AiChat({ projectId, projectName, userEmail }: ChatProps) {
     void sendMessage(lastUserMessage, { recordUser: false });
   }
 
-  function handleProposalAccept(proposal: MutationProposal) {
-    const text = `Yes, please go ahead and save ${proposal.tool.replace(/_/g, " ")}.`;
-    void sendMessage(text);
+  async function handleProposalAccept(proposal: MutationProposal) {
+    if (!projectId || !userEmail || executingProposal) return;
+    setExecutingProposal(true);
+    try {
+      const res = await fetch("/api/ai/execute-proposal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tool: proposal.tool,
+          args: { ...proposal.args, projectId: proposal.args?.projectId ?? projectId },
+          projectId,
+          userEmail,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; result?: unknown };
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      addMessage({
+        role: "assistant",
+        content: `Saved ${proposal.tool.replace(/_/g, " ")}.${data.result ? ` Result: ${JSON.stringify(data.result)}` : ""}`,
+      });
+    } catch (err) {
+      addMessage({
+        role: "assistant",
+        content: `I could not save that proposal: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    } finally {
+      setExecutingProposal(false);
+    }
   }
 
   function handleProposalCancel(proposal: MutationProposal) {
-    const text = `No, cancel that ${proposal.tool.replace(/_/g, " ")} — don't save it.`;
-    void sendMessage(text);
+    addMessage({
+      role: "assistant",
+      content: `Okay, I will not save that ${proposal.tool.replace(/_/g, " ")}.`,
+    });
   }
 
   function handleStop() {
@@ -669,7 +697,7 @@ export function AiChat({ projectId, projectName, userEmail }: ChatProps) {
                         <ProposalCard
                           key={`${msg.id}-${idx}`}
                           proposal={proposal}
-                          disabled={busy}
+                          disabled={busy || executingProposal}
                           onAccept={() => handleProposalAccept(proposal)}
                           onCancel={() => handleProposalCancel(proposal)}
                         />

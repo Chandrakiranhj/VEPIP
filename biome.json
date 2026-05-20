@@ -31,7 +31,19 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!.github", "!.husky", "!node_modules", "!.next", "!dist", "!out", "!src/components/ui"]
+    "includes": [
+      "**",
+      "!.github",
+      "!.husky",
+      "!.superpowers",
+      "!node_modules",
+      "!.next",
+      "!dist",
+      "!out",
+      "!deer-flow",
+      "!src/styles/presets",
+      "!src/components/ui"
+    ]
   },
   "formatter": {
     "enabled": true,

@@ -1,9 +1,20 @@
 import { v } from "convex/values";
 
-import { requireCurrentPerson, requireProjectAccess } from "./access";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx, mutation, query } from "./_generated/server";
+import { requireCurrentPerson, requireProjectAccess } from "./access";
+
+function fiscalYearForDate(dateInput?: string | null) {
+  if (!dateInput) return undefined;
+  const date = new Date(dateInput);
+  if (Number.isNaN(date.getTime())) return undefined;
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  const startYear = month >= 3 ? year : year - 1;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(startYear % 100)}-${pad((startYear + 1) % 100)}`;
+}
 
 function activityText(a: Pick<Doc<"activities">, "title" | "notes" | "testimonial" | "testimonialBy" | "state" | "location">) {
   return [
@@ -36,7 +47,7 @@ async function scheduleActivityIngestion(ctx: MutationCtx, activityId: Id<"activ
 
 async function scheduleReportIngestion(ctx: MutationCtx, reportId: Id<"reports">) {
   const r = await ctx.db.get(reportId);
-  if (!r || !r.draft) return;
+  if (!r?.draft) return;
   await ctx.scheduler.runAfter(0, internal.aiIngest.upsertAndSchedule, {
     projectId: r.projectId,
     kind: "report_draft",
@@ -205,6 +216,7 @@ export const addDeliverable = mutation({
     return ctx.db.insert("deliverables", {
       ...args,
       achieved: 0,
+      fiscalYear: fiscalYearForDate(args.dueDate),
       status: "not_started",
     });
   },
@@ -304,6 +316,7 @@ export const saveReport = mutation({
       periodStart: args.periodStart,
       periodEnd: args.periodEnd,
       dueDate: today,
+      fiscalYear: fiscalYearForDate(args.periodEnd),
       status: "draft",
       draft: args.draft,
       generatedAt: Date.now(),

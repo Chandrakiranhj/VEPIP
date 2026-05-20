@@ -1,9 +1,26 @@
 import { NextResponse } from "next/server";
-import { deerflowFetch } from "@/lib/deerflow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+
+const CONVEX_SITE = process.env.NEXT_PUBLIC_CONVEX_SITE_URL ?? "";
+const INTERNAL_SECRET = process.env.VEPIP_INTERNAL_SECRET ?? "";
+const ADMIN_EMAIL = process.env.VEPIP_ADMIN_EMAIL ?? "";
+
+async function convexFetch(path: string, payload: object = {}) {
+  if (!CONVEX_SITE || !INTERNAL_SECRET) throw new Error("Convex internal env vars are missing");
+  if (!ADMIN_EMAIL) throw new Error("VEPIP_ADMIN_EMAIL is required for scheduled AI analysis");
+  const res = await fetch(`${CONVEX_SITE}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${INTERNAL_SECRET}`,
+    },
+    body: JSON.stringify({ userEmail: ADMIN_EMAIL, ...payload }),
+  });
+  if (!res.ok) throw new Error(`${path} failed (${res.status}): ${await res.text().catch(() => "")}`);
+  return res.json();
+}
 
 export async function POST(request: Request) {
   const secret = request.headers.get("x-internal-secret");
@@ -11,67 +28,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const adminEmail =
-    process.env.VEPIP_ADMIN_EMAIL ?? "chandrakiran@visionempowertrust.org";
-
   try {
-    const threadRes = await deerflowFetch("/api/threads", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-
-    if (!threadRes.ok) {
-      const text = await threadRes.text();
-      console.error("[analyze-projects] thread create failed:", text);
-      return NextResponse.json(
-        { error: "Failed to create analysis thread" },
-        { status: 500 },
-      );
-    }
-
-    const { thread_id } = (await threadRes.json()) as { thread_id: string };
-
+    const summary = (await convexFetch("/ai/org-summary")) as {
+      projects?: Array<{ id: string; name: string; status: string; endDate?: string }>;
+    };
+    let alertsCreated = 0;
     const today = new Date().toISOString().slice(0, 10);
-    const analysisPrompt = `<context>
-user_email: ${adminEmail}
-today: ${today}
-</context>
-
-You are performing a weekly proactive project health check for Vision Empower.
-
-1. Call get_org_summary to see all active projects.
-2. For each project with status 'at_risk' or 'overdue', call get_project_context to understand specific issues.
-3. For each significant risk you identify (budget overrun, stalled deliverables, upcoming deadlines), call write_alert with an appropriate severity (info/watch/critical) and a clear, actionable title.
-4. When done, summarize what you found and what alerts you created.
-
-Do not ask for confirmation — this is an automated analysis run. Execute fully.`;
-
-    const runRes = await deerflowFetch(
-      `/api/threads/${thread_id}/runs/wait`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          input: {
-            messages: [{ role: "user", content: analysisPrompt }],
-          },
-          config: {
-            configurable: { model_name: "gemini-flash" },
-          },
-        }),
-      },
-    );
-
-    if (!runRes.ok) {
-      const text = await runRes.text();
-      console.error("[analyze-projects] Run failed:", text);
-      return NextResponse.json({ error: "Analysis run failed" }, { status: 500 });
+    for (const project of summary.projects ?? []) {
+      if (project.status !== "at_risk" && project.status !== "overdue") continue;
+      const severity = project.status === "overdue" ? "critical" : "watch";
+      await convexFetch("/ai/write-alert", {
+        projectId: project.id,
+        title: `${project.name} needs review (${project.status.replace(/_/g, " ")}) as of ${today}`,
+        severity,
+      });
+      alertsCreated++;
     }
 
-    return NextResponse.json({ ok: true, threadId: thread_id });
+    return NextResponse.json({ ok: true, mode: "direct", alertsCreated });
   } catch (err) {
-    console.error("[analyze-projects] Error:", err);
+    console.error("[analyze-projects] direct analysis failed:", err);
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }

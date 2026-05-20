@@ -99,13 +99,15 @@ function projectFyContribution(
 // ── Org-wide financial overview ──────────────────────────────────────────────
 
 export const getOrgFinancialOverview = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { fiscalYear: v.optional(v.string()) },
+  handler: async (ctx, { fiscalYear }) => {
     const { person } = await requireCurrentPerson(ctx);
     requireLeadership(person);
     const projects = await ctx.db.query("projects").collect();
     const allBudgets = await ctx.db.query("budgetCategories").collect();
     const allExpenses = await ctx.db.query("expenses").collect();
+    const fyStart = fiscalYear ? fyStartDate(fiscalYear) : null;
+    const fyEnd = fiscalYear ? fyEndDate(fiscalYear) : null;
 
     const budgetsByProject = new Map<string, Doc<"budgetCategories">[]>();
     for (const b of allBudgets) {
@@ -126,12 +128,25 @@ export const getOrgFinancialOverview = query({
     const funderTotals = new Map<string, number>();
 
     for (const p of projects) {
-      totalCommitted += p.grantAmount ?? 0;
+      const contribution = fyStart && fyEnd ? projectFyContribution(p, fyStart, fyEnd) : null;
+      if (fiscalYear && !contribution) continue;
+      const amountForScope = contribution?.fyAmount ?? p.grantAmount ?? 0;
+      const fractionForScope = p.grantAmount > 0 ? amountForScope / p.grantAmount : 0;
+
+      totalCommitted += amountForScope;
       statusCounts[p.status] = (statusCounts[p.status] ?? 0) + 1;
-      funderTotals.set(p.funderName, (funderTotals.get(p.funderName) ?? 0) + (p.grantAmount ?? 0));
+      funderTotals.set(p.funderName, (funderTotals.get(p.funderName) ?? 0) + amountForScope);
       const budgets = budgetsByProject.get(p._id) ?? [];
-      totalApproved += budgets.reduce((s, b) => s + (b.approvedAmount ?? 0), 0);
-      totalSpent += budgets.reduce((s, b) => s + (b.spentAmount ?? 0), 0);
+      totalApproved += budgets.reduce((s, b) => s + (b.approvedAmount ?? 0) * (fiscalYear ? fractionForScope : 1), 0);
+      totalSpent += fiscalYear && fyStart && fyEnd
+        ? allExpenses
+            .filter((expense) => expense.projectId === p._id)
+            .filter((expense) => {
+              const spentOn = new Date(expense.spentOn);
+              return spentOn >= fyStart && spentOn <= fyEnd;
+            })
+            .reduce((sum, expense) => sum + expense.amount, 0)
+        : budgets.reduce((s, b) => s + (b.spentAmount ?? 0), 0);
     }
 
     const topFunders = Array.from(funderTotals.entries())
@@ -142,7 +157,10 @@ export const getOrgFinancialOverview = query({
     const utilisation = totalApproved > 0 ? totalSpent / totalApproved : 0;
 
     return {
-      totalProjects: projects.length,
+      fiscalYear: fiscalYear ?? null,
+      totalProjects: fiscalYear
+        ? projects.filter((p) => fyStart && fyEnd && projectFyContribution(p, fyStart, fyEnd)).length
+        : projects.length,
       totalCommittedGrants: totalCommitted,
       totalApprovedBudget: totalApproved,
       totalSpent,

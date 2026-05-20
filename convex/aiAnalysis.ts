@@ -7,7 +7,7 @@ export const triggerWeeklyAnalysis = internalAction({
     const secret = process.env.VEPIP_INTERNAL_SECRET;
 
     if (!secret) {
-      console.error("[aiAnalysis] VEPIP_INTERNAL_SECRET not set — skipping");
+      console.error("[aiAnalysis] VEPIP_INTERNAL_SECRET not set; skipping");
       return;
     }
 
@@ -28,7 +28,7 @@ export const triggerWeeklyAnalysis = internalAction({
       }
 
       const data = await res.json();
-      console.log("[aiAnalysis] Weekly analysis triggered. Thread:", data.threadId);
+      console.log("[aiAnalysis] Weekly direct analysis triggered:", data);
     } catch (err) {
       console.error("[aiAnalysis] Error triggering analysis:", err);
     }

@@ -1,9 +1,78 @@
 import { v } from "convex/values";
 
-import { canSeeAllProjects, requireCurrentPerson, requireLeadership, requireProjectAccess } from "./access";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalQuery, mutation, type MutationCtx, query } from "./_generated/server";
+import { internalQuery, type MutationCtx, mutation, query } from "./_generated/server";
+import { canSeeAllProjects, requireCurrentPerson, requireLeadership, requireProjectAccess } from "./access";
+
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function fiscalYearForDate(dateInput?: string | null) {
+  if (!dateInput) return undefined;
+  const date = new Date(dateInput);
+  if (Number.isNaN(date.getTime())) return undefined;
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  const startYear = month >= 3 ? year : year - 1;
+  return `${pad2(startYear % 100)}-${pad2((startYear + 1) % 100)}`;
+}
+
+function fiscalYearLabel(fy: string) {
+  const [a, b] = fy.split("-");
+  return `FY 20${a}-${b}`;
+}
+
+function fyStart(fy: string) {
+  const y = 2000 + parseInt(fy.split("-")[0] ?? "0", 10);
+  return new Date(Date.UTC(y, 3, 1));
+}
+
+function fyEnd(fy: string) {
+  const start = fyStart(fy);
+  return new Date(Date.UTC(start.getUTCFullYear() + 1, 2, 31, 23, 59, 59, 999));
+}
+
+function enumerateFiscalYears(startDate?: string | null, endDate?: string | null) {
+  const start = startDate ? new Date(startDate) : null;
+  const end = endDate ? new Date(endDate) : null;
+  if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return [];
+  const out: Array<{ fiscalYear: string; label: string; startDate: string; endDate: string }> = [];
+  let fy = fiscalYearForDate(startDate);
+  while (fy) {
+    out.push({
+      fiscalYear: fy,
+      label: fiscalYearLabel(fy),
+      startDate: fyStart(fy).toISOString().slice(0, 10),
+      endDate: fyEnd(fy).toISOString().slice(0, 10),
+    });
+    if (fyEnd(fy) >= end) break;
+    const next = parseInt(fy.split("-")[0] ?? "0", 10) + 1;
+    fy = `${pad2(next % 100)}-${pad2((next + 1) % 100)}`;
+    if (out.length > 40) break;
+  }
+  return out;
+}
+
+function dayOverlap(a1: Date, a2: Date, b1: Date, b2: Date) {
+  const start = Math.max(a1.getTime(), b1.getTime());
+  const end = Math.min(a2.getTime(), b2.getTime());
+  if (end < start) return 0;
+  return Math.floor((end - start) / 86_400_000) + 1;
+}
+
+function fyBudgetAllocations(amount: number, startDate?: string | null, endDate?: string | null) {
+  const start = startDate ? new Date(startDate) : null;
+  const end = endDate ? new Date(endDate) : null;
+  if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start || !amount) return [];
+  const totalDays = dayOverlap(start, end, start, end);
+  return enumerateFiscalYears(startDate, endDate).map((fy) => {
+    const days = dayOverlap(start, end, fyStart(fy.fiscalYear), fyEnd(fy.fiscalYear));
+    const fraction = totalDays > 0 ? days / totalDays : 0;
+    return { ...fy, days, fraction, amount: Math.round(amount * fraction) };
+  }).filter((row) => row.days > 0);
+}
 
 function projectSummaryText(p: Doc<"projects"> | (Omit<Doc<"projects">, "_id" | "_creationTime"> & { _id?: Id<"projects"> })) {
   return [
@@ -11,8 +80,8 @@ function projectSummaryText(p: Doc<"projects"> | (Omit<Doc<"projects">, "_id" | 
     p.funderName ? `Funder: ${p.funderName}` : "",
     p.summary ?? "",
     p.states?.length ? `States: ${p.states.join(", ")}` : "",
-    typeof p.grantAmount === "number" ? `Grant: ₹${p.grantAmount}` : "",
-    p.startDate || p.endDate ? `Dates: ${p.startDate ?? ""} → ${p.endDate ?? ""}` : "",
+    typeof p.grantAmount === "number" ? `Grant: INR ${p.grantAmount}` : "",
+    p.startDate || p.endDate ? `Dates: ${p.startDate ?? ""} to ${p.endDate ?? ""}` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -36,7 +105,7 @@ async function scheduleProjectIngestion(ctx: MutationCtx, projectId: Id<"project
       sourceTable: "projects",
       sourceId: `${projectId}:mou`,
       storageId: project.mouStorageId,
-      title: `${project.name} — MoU`,
+      title: `${project.name} - MoU`,
     });
   }
   if (project.proposalStorageId) {
@@ -46,7 +115,7 @@ async function scheduleProjectIngestion(ctx: MutationCtx, projectId: Id<"project
       sourceTable: "projects",
       sourceId: `${projectId}:proposal`,
       storageId: project.proposalStorageId,
-      title: `${project.name} — Proposal`,
+      title: `${project.name} - Proposal`,
     });
   }
 }
@@ -166,6 +235,12 @@ export const createFromAiDraft = mutation({
       endDate: draft.endDate ?? "",
       states: Array.isArray(draft.states) ? draft.states : [],
       stateAllocations,
+      fiscalYears: Array.isArray(draft.fiscalYears)
+        ? draft.fiscalYears
+        : enumerateFiscalYears(draft.startDate, draft.endDate),
+      fyBudgetAllocations: Array.isArray(draft.fyBudgetAllocations)
+        ? draft.fyBudgetAllocations
+        : fyBudgetAllocations(Number(draft.grantAmount ?? 0), draft.startDate, draft.endDate),
       summary: draft.summary,
       extractedDraft: draft,
       funderLogoStorageId: draft.funderLogoStorageId,
@@ -208,6 +283,7 @@ export const createFromAiDraft = mutation({
         achieved: 0,
         unit: item.unit,
         dueDate: item.dueDate ?? draft.endDate ?? "",
+        fiscalYear: item.fiscalYear ?? fiscalYearForDate(item.dueDate ?? draft.endDate),
         status: "not_started",
       });
     }
@@ -218,6 +294,7 @@ export const createFromAiDraft = mutation({
         projectId,
         title: ms.title ?? "Untitled milestone",
         dueDate: ms.dueDate ?? draft.endDate ?? "",
+        fiscalYear: ms.fiscalYear ?? fiscalYearForDate(ms.dueDate ?? draft.endDate),
         status: "not_started",
       });
     }
@@ -243,6 +320,7 @@ export const createFromAiDraft = mutation({
         categoryId: catName ? categoryIdByName.get(catName) : undefined,
         phaseId: resolvePhase(li.phaseCode),
         state: li.state ?? undefined,
+        fiscalYear: li.fiscalYear ?? fiscalYearForDate(li.plannedDate ?? li.dueDate),
         name: li.name ?? "Untitled line item",
         description: li.description ?? undefined,
         subCategory: li.subCategory ?? undefined,
@@ -265,6 +343,7 @@ export const createFromAiDraft = mutation({
         tranche: Number(t.tranche ?? 0),
         amount: Number(t.amount ?? 0),
         plannedDate: t.plannedDate ?? undefined,
+        fiscalYear: t.fiscalYear ?? fiscalYearForDate(t.plannedDate),
         triggerCondition: t.triggerCondition ?? undefined,
         requiredDocs: Array.isArray(t.requiredDocs) ? t.requiredDocs.map(String) : undefined,
         status: "planned",
@@ -383,6 +462,7 @@ export const createFromAiDraft = mutation({
         periodStart: report.periodStart ?? "",
         periodEnd: report.periodEnd ?? "",
         dueDate: report.dueDate ?? "",
+        fiscalYear: report.fiscalYear ?? fiscalYearForDate(report.periodEnd ?? report.dueDate),
         status: "draft",
       });
     }
@@ -471,14 +551,16 @@ export const getContextInternal = internalQuery({
       grantAmount: project.grantAmount,
       startDate: project.startDate,
       endDate: project.endDate,
+      fiscalYears: project.fiscalYears,
+      fyBudgetAllocations: project.fyBudgetAllocations,
       states: project.states,
       summary: project.summary,
-      deliverables: deliverables.map((d) => ({ id: d._id, title: d.title, target: d.target, achieved: d.achieved, unit: d.unit, dueDate: d.dueDate, status: d.status })),
+      deliverables: deliverables.map((d) => ({ id: d._id, title: d.title, target: d.target, achieved: d.achieved, unit: d.unit, dueDate: d.dueDate, fiscalYear: d.fiscalYear, status: d.status })),
       budgetCategories: budgets.map((b) => ({ id: b._id, name: b.name, approvedAmount: b.approvedAmount, spentAmount: b.spentAmount })),
       recentActivities: activities.map((a) => ({ id: a._id, title: a.title, activityDate: a.activityDate, state: a.state, location: a.location, teachersReached: a.teachersReached, studentsReached: a.studentsReached, schoolsReached: a.schoolsReached })),
-      milestones: milestones.map((m) => ({ id: m._id, title: m.title, dueDate: m.dueDate, status: m.status })),
+      milestones: milestones.map((m) => ({ id: m._id, title: m.title, dueDate: m.dueDate, fiscalYear: m.fiscalYear, status: m.status })),
       unresolvedAlerts: alerts.filter((a) => !a.resolvedAt).map((a) => ({ id: a._id, title: a.title, severity: a.severity })),
-      reports: reports.map((r) => ({ id: r._id, periodStart: r.periodStart, periodEnd: r.periodEnd, dueDate: r.dueDate, status: r.status, title: r.title })),
+      reports: reports.map((r) => ({ id: r._id, periodStart: r.periodStart, periodEnd: r.periodEnd, dueDate: r.dueDate, fiscalYear: r.fiscalYear, reportType: r.reportType, status: r.status, title: r.title })),
     };
   },
 });

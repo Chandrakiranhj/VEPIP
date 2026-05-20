@@ -3,7 +3,7 @@
  *
  * Takes the same proposal/MoU file uploads the AI intake takes, runs them
  * through the existing PDF / DOCX / TXT parsers, and returns the cleaned
- * plain text. NO LLM call. NO DeerFlow. The browser-side manual-mode UI
+ * plain text. NO LLM call. The browser-side manual-mode UI
  * embeds this text into a prompt template that the user then pastes into
  * their own preferred LLM (Claude / ChatGPT / Gemini).
  */

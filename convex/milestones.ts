@@ -1,6 +1,18 @@
 import { v } from "convex/values";
-import { requireCurrentPerson, requireProjectAccess } from "./access";
+
 import { internalMutation, mutation, query } from "./_generated/server";
+import { requireCurrentPerson, requireProjectAccess } from "./access";
+
+function fiscalYearForDate(dateInput?: string | null) {
+  if (!dateInput) return undefined;
+  const date = new Date(dateInput);
+  if (Number.isNaN(date.getTime())) return undefined;
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  const startYear = month >= 3 ? year : year - 1;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(startYear % 100)}-${pad((startYear + 1) % 100)}`;
+}
 
 export const listByProject = query({
   args: { projectId: v.id("projects") },
@@ -27,6 +39,7 @@ export const add = mutation({
 
     return ctx.db.insert("milestones", {
       ...args,
+      fiscalYear: fiscalYearForDate(args.dueDate),
       status: "not_started",
     });
   },
@@ -58,7 +71,11 @@ export const updateStatus = mutation({
 export const addInternal = internalMutation({
   args: { projectId: v.id("projects"), title: v.string(), dueDate: v.string() },
   handler: async (ctx, args) => {
-    return ctx.db.insert("milestones", { ...args, status: "not_started" });
+    return ctx.db.insert("milestones", {
+      ...args,
+      fiscalYear: fiscalYearForDate(args.dueDate),
+      status: "not_started",
+    });
   },
 });
 

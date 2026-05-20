@@ -196,8 +196,8 @@ export default function ReportsPage() {
             Generate funder reports that feel as serious as the work behind them.
           </h1>
           <p className="text-muted-foreground mt-3 text-base max-w-2xl">
-            Pick a project, scope, format, and visual identity — the agent assembles your narrative
-            from live Convex data, renders it with publication-grade typography, and hands you a file
+            Pick a project, scope, format, and visual identity. VEPIP drafts from live Convex data,
+            renders it with publication-grade typography, and hands you a file
             you can send to a funder without editing.
           </p>
         </div>
@@ -550,7 +550,7 @@ function EmptyOutput({
         </div>
         <h2 className="font-semibold text-lg">Ready when you are.</h2>
         <p className="text-sm text-muted-foreground mt-1 max-w-xl">
-          When you hit Generate, the agent pulls live project data, drafts the narrative through Gemini,
+          When you hit Generate, VEPIP pulls live project data, drafts the narrative through the model API,
           then renders the file with the <span className="font-medium text-foreground">{vibe.label}</span> identity.
           You'll see every step live, and the download appears here.
         </p>

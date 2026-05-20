@@ -52,6 +52,22 @@ export default defineSchema({
     stateAllocations: v.optional(
       v.array(v.object({ state: v.string(), fraction: v.number() })),
     ),
+    fiscalYears: v.optional(
+      v.array(v.object({ fiscalYear: v.string(), label: v.string(), startDate: v.string(), endDate: v.string() })),
+    ),
+    fyBudgetAllocations: v.optional(
+      v.array(
+        v.object({
+          fiscalYear: v.string(),
+          label: v.string(),
+          startDate: v.string(),
+          endDate: v.string(),
+          amount: v.number(),
+          fraction: v.number(),
+          days: v.number(),
+        }),
+      ),
+    ),
     summary: v.optional(v.string()),
     funderLogoStorageId: v.optional(v.id("_storage")),
     proposalStorageId: v.optional(v.id("_storage")),
@@ -81,6 +97,7 @@ export default defineSchema({
     achieved: v.optional(v.number()),
     unit: v.optional(v.string()),
     dueDate: v.string(),
+    fiscalYear: v.optional(v.string()),
     status: deliverableStatus,
   })
     .index("by_project", ["projectId"])
@@ -90,6 +107,7 @@ export default defineSchema({
     projectId: v.id("projects"),
     title: v.string(),
     dueDate: v.string(),
+    fiscalYear: v.optional(v.string()),
     completedAt: v.optional(v.string()),
     status: deliverableStatus,
   })
@@ -140,6 +158,7 @@ export default defineSchema({
     periodStart: v.string(),
     periodEnd: v.string(),
     dueDate: v.string(),
+    fiscalYear: v.optional(v.string()),
     status: approvalStatus,
     reportType: v.optional(v.union(v.literal("quarterly"), v.literal("full"))),
     title: v.optional(v.string()),
@@ -306,6 +325,7 @@ export default defineSchema({
     categoryId: v.optional(v.id("budgetCategories")),
     phaseId: v.optional(v.id("projectPhases")),
     state: v.optional(v.string()),
+    fiscalYear: v.optional(v.string()),
     name: v.string(),
     description: v.optional(v.string()),
     subCategory: v.optional(v.string()),     // HR / Equipment / Events / Comms / Admin
@@ -328,6 +348,7 @@ export default defineSchema({
     tranche: v.number(),                     // 1, 2, 3 …
     amount: v.number(),
     plannedDate: v.optional(v.string()),
+    fiscalYear: v.optional(v.string()),
     triggerCondition: v.optional(v.string()),    // "30% upfront" / "on report submission"
     requiredDocs: v.optional(v.array(v.string())),
     status: v.union(

@@ -32,6 +32,7 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { enumerateFiscalYears, fiscalYearForDate, fiscalYearLabel, prorateAmountByFiscalYear } from "@/lib/fiscal-year";
 
 import { MANUAL_INTAKE_PROMPT } from "@/components/intake/manual-intake-prompt";
 
@@ -46,11 +47,14 @@ interface Deliverable {
   target?: number | null;
   unit?: string | null;
   dueDate?: string | null;
+  fiscalYear?: string | null;
   phaseCode?: string | null;
 }
-interface Milestone { title: string; dueDate?: string | null; phaseCode?: string | null; }
+interface Milestone { title: string; dueDate?: string | null; fiscalYear?: string | null; phaseCode?: string | null; }
 interface BudgetCategory { name: string; amount: number | null; }
-interface ReportSchedule { label: string; periodStart?: string | null; periodEnd?: string | null; dueDate?: string | null; }
+interface ReportSchedule { label: string; periodStart?: string | null; periodEnd?: string | null; dueDate?: string | null; fiscalYear?: string | null; }
+interface FiscalYearRow { fiscalYear: string; label?: string; startDate: string; endDate: string; }
+interface FyBudgetAllocation extends FiscalYearRow { amount: number; fraction: number; days: number; }
 
 interface Draft {
   projectName: string;
@@ -61,6 +65,8 @@ interface Draft {
   endDate: string | null;
   states: string[];
   stateAllocations?: Array<{ state: string; fraction: number }>;
+  fiscalYears?: FiscalYearRow[];
+  fyBudgetAllocations?: FyBudgetAllocation[];
   deliverables: Deliverable[];
   milestones: Milestone[];
   budgetCategories: BudgetCategory[];
@@ -174,6 +180,7 @@ function DraftReview({ draft, onUpdate }: { draft: Draft; onUpdate: (d: Draft) =
   // but we surface them so the user can see what was captured.)
   const richCounts = [
     { label: "Documents", value: (draft.documents?.length ?? 0) },
+    { label: "FY windows", value: (draft.fiscalYears?.length ?? 0) },
     { label: "Parties", value: (draft.parties?.length ?? 0) },
     { label: "Phases", value: (draft.phases?.length ?? 0) },
     { label: "Budget lines", value: (draft.budgetLineItems?.length ?? 0) },
@@ -251,6 +258,29 @@ function DraftReview({ draft, onUpdate }: { draft: Draft; onUpdate: (d: Draft) =
           <p className="text-xs text-muted-foreground mt-3">
             These will be saved to Convex along with the core fields. View them on the project page after creation.
           </p>
+        </div>
+      )}
+
+      {(draft.fiscalYears?.length ?? 0) > 0 && (
+        <div className="rounded-lg border bg-card p-4">
+          <h3 className="font-semibold text-sm mb-3">Fiscal year mapping</h3>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {draft.fiscalYears?.map((fy) => {
+              const budget = draft.fyBudgetAllocations?.find((row) => row.fiscalYear === fy.fiscalYear);
+              return (
+                <div key={fy.fiscalYear} className="rounded-md border bg-muted/20 p-3">
+                  <div className="text-xs font-bold uppercase text-primary">{fy.label ?? fiscalYearLabel(fy.fiscalYear)}</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">{fy.startDate} to {fy.endDate}</div>
+                  {budget && (
+                    <div className="mt-2 text-sm font-semibold">
+                      {new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(budget.amount)}
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">{Math.round(budget.fraction * 100)}%</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -371,6 +401,41 @@ function extractJsonFromPaste(raw: string): string | null {
   return null;
 }
 
+function addFiscalYearToRows<T extends object>(rows: T[], dateKeys: string[]): T[] {
+  return rows.map((row) => {
+    const record = row as Record<string, unknown>;
+    if (typeof record.fiscalYear === "string" && record.fiscalYear) return row;
+    const date = dateKeys
+      .map((key) => record[key])
+      .find((value): value is string => typeof value === "string" && value.length > 0);
+    return date ? ({ ...row, fiscalYear: fiscalYearForDate(date) } as T) : row;
+  });
+}
+
+function normaliseDraftFiscalYears(draft: Draft): Draft {
+  const fiscalYears = draft.fiscalYears?.length
+    ? draft.fiscalYears
+    : enumerateFiscalYears(draft.startDate, draft.endDate);
+  const fyBudgetAllocations = draft.fyBudgetAllocations?.length
+    ? draft.fyBudgetAllocations
+    : prorateAmountByFiscalYear(Number(draft.grantAmount ?? 0), draft.startDate, draft.endDate);
+
+  return {
+    ...draft,
+    fiscalYears,
+    fyBudgetAllocations,
+    deliverables: addFiscalYearToRows(draft.deliverables, ["dueDate"]) as Deliverable[],
+    milestones: addFiscalYearToRows(draft.milestones, ["dueDate"]) as Milestone[],
+    reportingSchedule: addFiscalYearToRows(draft.reportingSchedule, ["periodEnd", "dueDate"]) as ReportSchedule[],
+    budgetLineItems: Array.isArray(draft.budgetLineItems)
+      ? addFiscalYearToRows(draft.budgetLineItems as Record<string, unknown>[], ["plannedDate", "dueDate"])
+      : [],
+    paymentTranches: Array.isArray(draft.paymentTranches)
+      ? addFiscalYearToRows(draft.paymentTranches as Record<string, unknown>[], ["plannedDate"])
+      : [],
+  };
+}
+
 function parsePastedDraft(raw: string): ParseResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -410,6 +475,8 @@ function parsePastedDraft(raw: string): ParseResult {
     endDate: typeof d.endDate === "string" ? d.endDate : null,
     states: Array.isArray(d.states) ? (d.states as unknown[]).map(String) : [],
     stateAllocations: Array.isArray(d.stateAllocations) ? (d.stateAllocations as Array<{ state: string; fraction: number }>) : undefined,
+    fiscalYears: Array.isArray(d.fiscalYears) ? (d.fiscalYears as FiscalYearRow[]) : [],
+    fyBudgetAllocations: Array.isArray(d.fyBudgetAllocations) ? (d.fyBudgetAllocations as FyBudgetAllocation[]) : [],
     deliverables: Array.isArray(d.deliverables) ? (d.deliverables as Deliverable[]) : [],
     milestones: Array.isArray(d.milestones) ? (d.milestones as Milestone[]) : [],
     budgetCategories: Array.isArray(d.budgetCategories) ? (d.budgetCategories as BudgetCategory[]) : [],
@@ -426,7 +493,7 @@ function parsePastedDraft(raw: string): ParseResult {
     risks: Array.isArray(d.risks) ? (d.risks as unknown[]) : [],
   };
 
-  return { draft: errors.length ? null : draft, errors, warnings };
+  return { draft: errors.length ? null : normaliseDraftFiscalYears(draft), errors, warnings };
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────

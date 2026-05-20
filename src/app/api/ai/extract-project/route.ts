@@ -1,218 +1,147 @@
 import { NextResponse } from "next/server";
-import { deerflowFetch } from "@/lib/deerflow";
+
+import { generateJson } from "@/lib/ai-direct";
+import { enumerateFiscalYears, fiscalYearForDate, prorateAmountByFiscalYear } from "@/lib/fiscal-year";
 import { extractPdfDocument } from "@/lib/pdf-extraction";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-/** Clean and truncate text to stay within LLM context limits. */
-function cleanAndTruncate(text: string, maxChars = 1_500_000): string {
-  const cleaned = text
-    .replace(/[\r\n]{3,}/g, "\n\n")
-    .replace(/[ \t]{3,}/g, " ")
-    .trim();
-  if (cleaned.length <= maxChars) return cleaned;
-  console.warn(`[AI Intake] Truncating ${cleaned.length} → ${maxChars} chars`);
-  return cleaned.slice(0, maxChars);
+interface IntakeDraft {
+  projectName?: string;
+  summary?: string;
+  funder?: { name?: string; contactName?: string | null; contactEmail?: string | null };
+  funderName?: string;
+  grantAmount?: number | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  states?: string[];
+  stateAllocations?: Array<{ state: string; fraction: number }>;
+  deliverables?: Array<Record<string, unknown>>;
+  milestones?: Array<Record<string, unknown>>;
+  budgetCategories?: Array<Record<string, unknown>>;
+  budgetLineItems?: Array<Record<string, unknown>>;
+  reportingSchedule?: Array<Record<string, unknown>>;
+  fiscalYears?: unknown;
+  fyBudgetAllocations?: unknown;
+  risksOrAmbiguities?: string[];
+  [key: string]: unknown;
 }
 
-/** Extract plain text from a File. Supports PDF, DOCX, plain text. */
+function cleanAndTruncate(text: string, maxChars = 1_200_000): string {
+  const cleaned = text.replace(/[\r\n]{3,}/g, "\n\n").replace(/[ \t]{3,}/g, " ").trim();
+  return cleaned.length <= maxChars ? cleaned : cleaned.slice(0, maxChars);
+}
+
 async function extractTextFromFile(file: File): Promise<string> {
   const buffer = Buffer.from(await file.arrayBuffer());
   const lowerName = file.name.toLowerCase();
 
-  let text = "";
   if (lowerName.endsWith(".pdf")) {
     const extracted = await extractPdfDocument(buffer);
-    text = [
-      `PDF extraction mode: ${extracted.usedOcr ? "native text + OCR fallback" : "native text + layout elements"}`,
-      extracted.text,
-    ].join("\n\n");
-  } else if (lowerName.endsWith(".docx") || lowerName.endsWith(".doc")) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mammoth = require("mammoth");
+    return cleanAndTruncate(
+      [`PDF extraction mode: ${extracted.usedOcr ? "native text + OCR fallback" : "native text + layout elements"}`, extracted.text].join("\n\n"),
+    );
+  }
+  if (lowerName.endsWith(".docx") || lowerName.endsWith(".doc")) {
+    const mammoth = await import("mammoth");
     const result = await mammoth.extractRawText({ buffer });
-    text = result.value ?? "";
-  } else {
-    text = buffer.toString("utf-8");
+    return cleanAndTruncate(result.value ?? "");
   }
-
-  return cleanAndTruncate(text);
+  return cleanAndTruncate(buffer.toString("utf-8"));
 }
 
-/** Pull the first ```json fenced block out of a streaming/non-streaming response. */
-function extractJsonBlock(raw: string): string | null {
-  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence) return fence[1].trim();
-  // Fall back to first balanced object
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start >= 0 && end > start) return raw.slice(start, end + 1);
-  return null;
+function withFiscalMapping(draft: IntakeDraft): IntakeDraft {
+  const startDate = draft.startDate || null;
+  const endDate = draft.endDate || null;
+  const grantAmount = Number(draft.grantAmount ?? 0);
+  const fiscalYears = enumerateFiscalYears(startDate, endDate);
+  const fyBudgetAllocations = prorateAmountByFiscalYear(grantAmount, startDate, endDate);
+
+  const addFy = <T extends Record<string, unknown>>(rows: T[] | undefined, dateKeys: string[]) =>
+    (rows ?? []).map((row) => {
+      const date = dateKeys.map((key) => row[key]).find((value): value is string => typeof value === "string" && value.length > 0);
+      return date ? { ...row, fiscalYear: fiscalYearForDate(date) } : row;
+    });
+
+  return {
+    ...draft,
+    fiscalYears,
+    fyBudgetAllocations,
+    deliverables: addFy(draft.deliverables, ["dueDate"]),
+    milestones: addFy(draft.milestones, ["dueDate"]),
+    reportingSchedule: addFy(draft.reportingSchedule, ["periodEnd", "dueDate"]),
+    budgetLineItems: addFy(draft.budgetLineItems, ["plannedDate", "dueDate"]),
+  };
 }
 
-/** Read a SSE response body (LangGraph "messages-tuple" style) and return the
- *  assistant's actual reply text, filtering out title-generation chunks.
- *
- *  Bug history: DeerFlow's TitleMiddleware emits a short "thread title"
- *  alongside the main agent response on the same stream. The previous version
- *  of this consumer joined every AIMessageChunk it saw, so when the title
- *  arrived but the main response was incomplete (or got dropped), the result
- *  was just the title (e.g. "Vepip-Intake: Project Plan Extraction") and the
- *  JSON parser found nothing.
- *
- *  Fix: (a) skip chunks whose metadata.langgraph_node identifies the title
- *  generator, (b) prefer the LONGEST single-message text instead of joining
- *  everything (the title is ~30 chars; the JSON response is ~5KB+), (c) fall
- *  back to concatenating all texts if the longest doesn't contain a JSON
- *  block. */
-const TITLE_NODE_PATTERNS = /(^|[._-])(title|titling|thread_title)([._-]|$)/i;
+function intakePrompt(proposalText: string, mouText: string, today: string) {
+  return `You are extracting project data for Vision Empower's Project Intelligence Platform.
 
-async function consumeStream(stream: ReadableStream<Uint8Array>): Promise<string> {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  const aiTextById: Record<string, string> = {};
-  let buffer = "";
+Return ONLY valid JSON. Do not wrap in markdown.
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split(/\r?\n\r?\n/);
-    buffer = events.pop() ?? "";
+Critical fiscal-year rule:
+- Vision Empower uses Indian FY windows: FY 26-27 means 2026-04-01 through 2027-03-31.
+- If a project spans multiple FYs, split timelines and budget visibility by FY.
+- For any deliverable, milestone, report, budget line, tranche, or compliance date, include fiscalYear when a date is known.
+- Include fiscalYears[] with { fiscalYear, label, startDate, endDate } for every FY touched by the project.
+- Include fyBudgetAllocations[] with { fiscalYear, label, startDate, endDate, amount, fraction, days } using date prorating when the document does not provide explicit FY amounts.
 
-    for (const evt of events) {
-      let dataLine: string | null = null;
-      for (const line of evt.split(/\r?\n/)) {
-        if (line.startsWith("data:")) dataLine = line.slice(5).trim();
-      }
-      if (!dataLine || dataLine === "[DONE]") continue;
-      try {
-        const parsed = JSON.parse(dataLine);
-        // LangGraph "messages-tuple" mode: [message, metadata]
-        if (!Array.isArray(parsed) || parsed.length < 1) continue;
-        const [msg, metadata] = parsed as [Record<string, unknown>, Record<string, unknown> | undefined];
-        if (!msg || typeof msg !== "object" || msg.type !== "AIMessageChunk") continue;
+Accuracy rules:
+- Do not invent facts. Use null or [] and add a risksOrAmbiguities item when missing.
+- Preserve funder language where useful.
+- Dates must be YYYY-MM-DD.
+- Amounts must be INR numbers when possible.
 
-        // Drop chunks the TitleMiddleware emits — they look like AIMessageChunk
-        // but live on a different graph node.
-        const node = String(metadata?.langgraph_node ?? metadata?.node ?? "");
-        if (node && TITLE_NODE_PATTERNS.test(node)) continue;
-
-        const id = String(msg.id ?? "");
-        const content = msg.content;
-        if (typeof content === "string") {
-          aiTextById[id] = (aiTextById[id] ?? "") + content;
-        } else if (Array.isArray(content)) {
-          for (const part of content as Array<{ type?: string; text?: string }>) {
-            if (part?.type === "text" && typeof part.text === "string") {
-              aiTextById[id] = (aiTextById[id] ?? "") + part.text;
-            }
-          }
-        }
-      } catch {
-        // ignore non-JSON event payloads
-      }
-    }
-  }
-
-  const texts = Object.values(aiTextById).filter((t) => t.trim().length > 0);
-  if (texts.length === 0) return "";
-
-  // Prefer the longest single-message text — that's almost always the real
-  // response. A title is short (~30 chars); a structured intake JSON is huge.
-  const longest = texts.slice().sort((a, b) => b.length - a.length)[0].trim();
-  if (longest.includes("{") && longest.includes("}")) return longest;
-
-  // Defensive fallback: JSON might be split across message ids — try the union.
-  return texts.join("\n").trim();
+Required JSON shape:
+{
+  "projectName": string,
+  "summary": string,
+  "funder": { "name": string, "contactName": string|null, "contactEmail": string|null },
+  "grantAmount": number|null,
+  "startDate": "YYYY-MM-DD"|null,
+  "endDate": "YYYY-MM-DD"|null,
+  "states": string[],
+  "stateAllocations": [{ "state": string, "fraction": number }],
+  "fiscalYears": [{ "fiscalYear": "26-27", "label": "FY 2026-27", "startDate": "YYYY-MM-DD", "endDate": "YYYY-MM-DD" }],
+  "fyBudgetAllocations": [{ "fiscalYear": "26-27", "label": "FY 2026-27", "startDate": "YYYY-MM-DD", "endDate": "YYYY-MM-DD", "amount": number, "fraction": number, "days": number }],
+  "deliverables": [{ "title": string, "description": string|null, "target": number|null, "unit": string|null, "dueDate": "YYYY-MM-DD"|null, "fiscalYear": string|null, "phaseCode": string|null }],
+  "milestones": [{ "title": string, "dueDate": "YYYY-MM-DD"|null, "fiscalYear": string|null, "phaseCode": string|null }],
+  "budgetCategories": [{ "name": string, "amount": number|null }],
+  "budgetLineItems": [{ "name": string, "categoryName": string|null, "state": string|null, "totalCost": number, "fiscalYear": string|null, "notes": string|null }],
+  "paymentTranches": [{ "tranche": number, "amount": number, "plannedDate": "YYYY-MM-DD"|null, "fiscalYear": string|null, "triggerCondition": string|null }],
+  "reportingSchedule": [{ "label": string, "periodStart": "YYYY-MM-DD"|null, "periodEnd": "YYYY-MM-DD"|null, "dueDate": "YYYY-MM-DD"|null, "fiscalYear": string|null }],
+  "risksOrAmbiguities": string[],
+  "documents": [],
+  "parties": [],
+  "phases": [],
+  "kpis": [],
+  "compliance": [],
+  "approvals": [],
+  "risks": []
 }
 
-async function callDeerflowIntake(proposalText: string, mouText: string, today: string): Promise<unknown> {
-  const threadRes = await deerflowFetch("/api/threads", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
-  });
-  if (!threadRes.ok) {
-    throw new Error(`DeerFlow thread create failed: ${threadRes.status} ${await threadRes.text()}`);
-  }
-  const { thread_id } = (await threadRes.json()) as { thread_id: string };
-
-  const prompt = `<context>
 today: ${today}
-task: extract-project
-</context>
-
-Use the **vepip-intake** skill (see /mnt/skills/custom/vepip-intake/SKILL.md). Extract a structured project plan from the documents below.
-
-Reply with exactly one fenced \`\`\`json block — nothing else.
 
 --- PROPOSAL TEXT ---
 ${proposalText || "(no proposal supplied)"}
 
 --- MOU / AGREEMENT TEXT ---
 ${mouText || "(no MOU supplied)"}`;
-
-  const runRes = await deerflowFetch(`/api/threads/${thread_id}/runs/stream`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      input: { messages: [{ role: "user", content: prompt }] },
-      // Let DeerFlow use its default configured model.
-      stream_mode: ["messages-tuple"],
-    }),
-  });
-  if (!runRes.ok || !runRes.body) {
-    throw new Error(`DeerFlow run failed: ${runRes.status} ${await runRes.text()}`);
-  }
-
-  const fullText = await consumeStream(runRes.body);
-  const jsonStr = extractJsonBlock(fullText);
-  if (!jsonStr) {
-    // Surface more of the raw response in the error so the next failure
-    // mode is diagnosable from one server log line.
-    const preview = fullText.slice(0, 800);
-    console.error("[AI Intake] No JSON block in response. Full text length:",
-      fullText.length, "Preview:", preview);
-    throw new Error(
-      `No JSON block in DeerFlow response (${fullText.length} chars). ` +
-      `First 800: ${preview}`,
-    );
-  }
-  try {
-    return JSON.parse(jsonStr);
-  } catch (err) {
-    console.error("[AI Intake] JSON parse failed. Extracted block:", jsonStr.slice(0, 800));
-    throw new Error(
-      `Found a JSON-like block but it didn't parse. ${(err as Error).message}. ` +
-      `Block preview: ${jsonStr.slice(0, 400)}`,
-    );
-  }
 }
 
 export async function POST(request: Request) {
   try {
     const contentType = request.headers.get("content-type") ?? "";
-
     let proposalText = "";
     let mouText = "";
 
     if (contentType.includes("multipart/form-data")) {
-      console.log("[AI Intake] Parsing multipart form data");
       const formData = await request.formData();
-
       const proposalFile = formData.get("proposal");
       const mouFile = formData.get("mou");
-
-      if (proposalFile && proposalFile instanceof File) {
-        console.log(`[AI Intake] Extracting proposal: ${proposalFile.name} (${proposalFile.size}B)`);
-        proposalText = await extractTextFromFile(proposalFile);
-      }
-      if (mouFile && mouFile instanceof File) {
-        console.log(`[AI Intake] Extracting MOU: ${mouFile.name} (${mouFile.size}B)`);
-        mouText = await extractTextFromFile(mouFile);
-      }
+      if (proposalFile instanceof File) proposalText = await extractTextFromFile(proposalFile);
+      if (mouFile instanceof File) mouText = await extractTextFromFile(mouFile);
       if (!proposalText) proposalText = String(formData.get("proposalText") ?? "");
       if (!mouText) mouText = String(formData.get("mouText") ?? "");
     } else {
@@ -222,35 +151,23 @@ export async function POST(request: Request) {
     }
 
     if (!proposalText && !mouText) {
-      return NextResponse.json(
-        { error: "Please upload at least one document (Proposal or MOU)." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Please upload at least one document." }, { status: 400 });
     }
 
-    // Cap combined size before sending to DeerFlow
     const totalLen = proposalText.length + mouText.length;
-    if (totalLen > 1_500_000) {
+    if (totalLen > 1_200_000) {
       if (proposalText && mouText) {
-        proposalText = cleanAndTruncate(proposalText, 750_000);
-        mouText = cleanAndTruncate(mouText, 750_000);
-      } else if (proposalText) {
-        proposalText = cleanAndTruncate(proposalText, 1_500_000);
-      } else {
-        mouText = cleanAndTruncate(mouText, 1_500_000);
-      }
+        proposalText = cleanAndTruncate(proposalText, 600_000);
+        mouText = cleanAndTruncate(mouText, 600_000);
+      } else if (proposalText) proposalText = cleanAndTruncate(proposalText, 1_200_000);
+      else mouText = cleanAndTruncate(mouText, 1_200_000);
     }
 
-    console.log(`[AI Intake] Sending ${proposalText.length + mouText.length} chars to DeerFlow vepip-intake skill`);
     const today = new Date().toISOString().slice(0, 10);
-    const draft = await callDeerflowIntake(proposalText, mouText, today);
-
-    console.log("[AI Intake] Draft extracted:",
-      (draft as { projectName?: string })?.projectName || "(unnamed)");
-
-    return NextResponse.json({ draft });
+    const draft = await generateJson<IntakeDraft>(intakePrompt(proposalText, mouText, today));
+    return NextResponse.json({ draft: withFiscalMapping(draft) });
   } catch (error) {
-    console.error("[AI Intake] ERROR during extraction:", error);
+    console.error("[AI Intake] direct extraction failed:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to extract project draft" },
       { status: 500 },
