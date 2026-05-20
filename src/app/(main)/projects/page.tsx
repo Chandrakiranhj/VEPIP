@@ -30,8 +30,10 @@ function label(value: string) {
 
 export default function ProjectsPage() {
   const portfolio = useQuery(api.projects.listPortfolio);
+  const currentPerson = useQuery(api.people.current);
   const createProject = useMutation(api.projects.createManual);
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
+  const canAdminister = currentPerson?.role === "admin";
   
   const [busy, setBusy] = useState(false);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
@@ -87,7 +89,9 @@ export default function ProjectsPage() {
             <Gauge className="size-6 text-primary" />
             Projects
           </h1>
-          <p className="text-muted-foreground mt-1">Manage and monitor all Vision Empower grants.</p>
+          <p className="text-muted-foreground mt-1">
+            {canAdminister ? "Manage and monitor all Vision Empower grants." : "Monitor the projects assigned to you."}
+          </p>
         </div>
       </div>
 
@@ -164,6 +168,7 @@ export default function ProjectsPage() {
           </Card>
         </div>
 
+        {canAdminister && (
         <div>
           <Card className="rounded-lg sticky top-20">
             <CardHeader>
@@ -232,6 +237,7 @@ export default function ProjectsPage() {
             </CardContent>
           </Card>
         </div>
+        )}
       </div>
     </main>
   );

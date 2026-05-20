@@ -80,6 +80,10 @@ export const updateActivity = mutation({
   },
   handler: async (ctx, args) => {
     const { activityId, ...updates } = args;
+    const { person } = await requireCurrentPerson(ctx);
+    const activity = await ctx.db.get(activityId);
+    if (!activity) throw new Error("Activity not found");
+    await requireProjectAccess(ctx, person, activity.projectId);
     await ctx.db.patch(activityId, updates);
     await scheduleActivityIngestion(ctx, activityId);
   },
@@ -128,6 +132,9 @@ export const listExpenses = query({
     ),
   },
   handler: async (ctx, args) => {
+    const { person } = await requireCurrentPerson(ctx);
+    await requireProjectAccess(ctx, person, args.projectId);
+
     const expenses = await ctx.db
       .query("expenses")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -143,6 +150,11 @@ export const approveExpense = mutation({
     approvedBy: v.optional(v.id("people")),
   },
   handler: async (ctx, args) => {
+    const { person } = await requireCurrentPerson(ctx);
+    const expense = await ctx.db.get(args.expenseId);
+    if (!expense) throw new Error("Expense not found");
+    await requireProjectAccess(ctx, person, expense.projectId);
+
     await ctx.db.patch(args.expenseId, {
       status: "approved",
       approvedBy: args.approvedBy,
@@ -156,8 +168,12 @@ export const rejectExpense = mutation({
     approvedBy: v.optional(v.id("people")),
   },
   handler: async (ctx, args) => {
-    // Roll back the budget deduction when rejecting
+    const { person } = await requireCurrentPerson(ctx);
     const expense = await ctx.db.get(args.expenseId);
+    if (!expense) throw new Error("Expense not found");
+    await requireProjectAccess(ctx, person, expense.projectId);
+
+    // Roll back the budget deduction when rejecting
     if (expense && expense.status === "submitted") {
       const category = await ctx.db.get(expense.categoryId);
       if (category) {
@@ -277,6 +293,9 @@ export const saveReport = mutation({
     draft: v.string(),
   },
   handler: async (ctx, args) => {
+    const { person } = await requireCurrentPerson(ctx);
+    await requireProjectAccess(ctx, person, args.projectId);
+
     const today = new Date().toISOString().slice(0, 10);
     const id = await ctx.db.insert("reports", {
       projectId: args.projectId,
@@ -297,6 +316,9 @@ export const saveReport = mutation({
 export const listReports = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
+    const { person } = await requireCurrentPerson(ctx);
+    await requireProjectAccess(ctx, person, args.projectId);
+
     return ctx.db
       .query("reports")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -310,6 +332,11 @@ export const attachReceiptToExpense = mutation({
     storageId: v.id("_storage"),
   },
   handler: async (ctx, args) => {
+    const { person } = await requireCurrentPerson(ctx);
+    const expense = await ctx.db.get(args.expenseId);
+    if (!expense) throw new Error("Expense not found");
+    await requireProjectAccess(ctx, person, expense.projectId);
+
     await ctx.db.patch(args.expenseId, { receiptStorageId: args.storageId });
   },
 });
@@ -317,6 +344,9 @@ export const attachReceiptToExpense = mutation({
 export const fullProjectReportInputs = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
+    const { person } = await requireCurrentPerson(ctx);
+    await requireProjectAccess(ctx, person, args.projectId);
+
     const project = await ctx.db.get(args.projectId);
     const [deliverables, budgets, expenses, activities, milestones, alerts] = await Promise.all([
       ctx.db.query("deliverables").withIndex("by_project", (q) => q.eq("projectId", args.projectId)).collect(),

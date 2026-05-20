@@ -27,6 +27,7 @@ export interface NavMainItem {
   comingSoon?: boolean;
   newTab?: boolean;
   isNew?: boolean;
+  adminOnly?: boolean;
 }
 
 export interface NavGroup {
@@ -61,11 +62,13 @@ export const sidebarItems: NavGroup[] = [
         url: "/intake",
         icon: Sparkles,
         isNew: true,
+        adminOnly: true,
       },
       {
         title: "Generate Reports",
         url: "/reports",
         icon: FileText,
+        adminOnly: true,
       },
     ],
   },
@@ -77,6 +80,7 @@ export const sidebarItems: NavGroup[] = [
         title: "Funds & Analytics",
         url: "/dashboard/funds",
         icon: Banknote,
+        adminOnly: true,
       },
     ],
   },
@@ -88,7 +92,19 @@ export const sidebarItems: NavGroup[] = [
         title: "People",
         url: "/people",
         icon: Users,
+        adminOnly: true,
       },
     ],
   },
 ];
+
+export function getSidebarItemsForRole(role?: string | null): NavGroup[] {
+  const isAdmin = role === "admin";
+
+  return sidebarItems
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => isAdmin || !item.adminOnly),
+    }))
+    .filter((group) => group.items.length > 0);
+}

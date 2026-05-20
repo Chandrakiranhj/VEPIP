@@ -101,7 +101,8 @@ function projectFyContribution(
 export const getOrgFinancialOverview = query({
   args: {},
   handler: async (ctx) => {
-    await requireCurrentPerson(ctx);
+    const { person } = await requireCurrentPerson(ctx);
+    requireLeadership(person);
     const projects = await ctx.db.query("projects").collect();
     const allBudgets = await ctx.db.query("budgetCategories").collect();
     const allExpenses = await ctx.db.query("expenses").collect();
@@ -158,7 +159,8 @@ export const getOrgFinancialOverview = query({
 export const getStatewiseCoverage = query({
   args: { fiscalYear: v.string() },
   handler: async (ctx, { fiscalYear }) => {
-    await requireCurrentPerson(ctx);
+    const { person } = await requireCurrentPerson(ctx);
+    requireLeadership(person);
     const fyStart = fyStartDate(fiscalYear);
     const fyEnd = fyEndDate(fiscalYear);
 
@@ -273,7 +275,8 @@ export const getStatewiseCoverage = query({
 export const getMultiYearTargetMatrix = query({
   args: { fromFy: v.string(), toFy: v.string() },
   handler: async (ctx, { fromFy, toFy }) => {
-    await requireCurrentPerson(ctx);
+    const { person } = await requireCurrentPerson(ctx);
+    requireLeadership(person);
     const fromStart = parseInt(fromFy.split("-")[0], 10);
     const toStart = parseInt(toFy.split("-")[0], 10);
     if (Number.isNaN(fromStart) || Number.isNaN(toStart) || toStart < fromStart) {

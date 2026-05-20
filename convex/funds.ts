@@ -54,6 +54,8 @@ export const seedStates = mutation({
 export const listStates = query({
   args: {},
   handler: async (ctx) => {
+    const { person } = await requireCurrentPerson(ctx);
+    requireLeadership(person);
     return await ctx.db.query("states").collect();
   },
 });
@@ -61,6 +63,8 @@ export const listStates = query({
 export const listSchools = query({
   args: { stateId: v.optional(v.id("states")) },
   handler: async (ctx, args) => {
+    const { person } = await requireCurrentPerson(ctx);
+    requireLeadership(person);
     const q = args.stateId
       ? ctx.db
           .query("schools")
@@ -73,6 +77,8 @@ export const listSchools = query({
 export const listFunders = query({
   args: {},
   handler: async (ctx) => {
+    const { person } = await requireCurrentPerson(ctx);
+    requireLeadership(person);
     return await ctx.db.query("funders").collect();
   },
 });
@@ -80,6 +86,8 @@ export const listFunders = query({
 export const getFinancialVisibility = query({
   args: { fiscalYear: v.string() }, // e.g. "2024-25"
   handler: async (ctx, args) => {
+    const { person } = await requireCurrentPerson(ctx);
+    requireLeadership(person);
     const visibility = await ctx.db
       .query("fundVisibility")
       .withIndex("by_fiscal_year", (q) => q.eq("fiscalYear", args.fiscalYear))
@@ -103,6 +111,8 @@ export const getFinancialVisibility = query({
 export const getRealVisibility = query({
   args: { fiscalYear: v.string() },
   handler: async (ctx, args) => {
+    const { person } = await requireCurrentPerson(ctx);
+    requireLeadership(person);
     const projects = await ctx.db.query("projects").collect();
     const [startYearStr, endYearStr] = args.fiscalYear.split("-");
     const startYear = parseInt("20" + startYearStr); 
@@ -181,6 +191,8 @@ export const getRealVisibility = query({
 export const getFyExpenditures = query({
   args: { fiscalYear: v.string() },
   handler: async (ctx, args) => {
+    const { person } = await requireCurrentPerson(ctx);
+    requireLeadership(person);
     return await ctx.db
       .query("fyExpenditure")
       .withIndex("by_fiscal_year", (q) => q.eq("fiscalYear", args.fiscalYear))
@@ -191,6 +203,8 @@ export const getFyExpenditures = query({
 export const getRealStateSpending = query({
   args: { fiscalYear: v.string() }, // e.g. "24-25"
   handler: async (ctx, args) => {
+    const { person } = await requireCurrentPerson(ctx);
+    requireLeadership(person);
     const projects = await ctx.db.query("projects").collect();
     const states = await ctx.db.query("states").collect();
     
@@ -370,6 +384,8 @@ export const removeVisibility = mutation({
 export const getComparativeAnalysis = query({
   args: { fiscalYear: v.string() },
   handler: async (ctx, args) => {
+    const { person } = await requireCurrentPerson(ctx);
+    requireLeadership(person);
     const expenditures = await ctx.db
       .query("fyExpenditure")
       .withIndex("by_fiscal_year", (q) => q.eq("fiscalYear", args.fiscalYear))

@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { authComponent, VE_EMAIL_DOMAIN, SUPER_ADMIN_EMAIL } from "./auth";
-import { canSeeAllProjects, normalizeEmail, requireCanManageRole, requireCurrentPerson, requireProjectAccess } from "./access";
+import { canSeeAllProjects, normalizeEmail, requireCanManageRole, requireCurrentPerson, requireLeadership, requireProjectAccess } from "./access";
 import { internalQuery, mutation, query } from "./_generated/server";
 
 const roleValidator = v.union(
@@ -102,7 +102,8 @@ export const bootstrapSuperAdmin = mutation({
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    await requireCurrentPerson(ctx);
+    const { person } = await requireCurrentPerson(ctx);
+    requireLeadership(person);
     return ctx.db.query("people").collect();
   },
 });
@@ -168,6 +169,7 @@ export const assignToProject = mutation({
   handler: async (ctx, args) => {
     const { person } = await requireCurrentPerson(ctx);
     await requireProjectAccess(ctx, person, args.projectId);
+    requireLeadership(person);
 
     if (args.programManagerId || args.accountManagerId) {
       await ctx.db.patch(args.projectId, {

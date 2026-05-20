@@ -38,7 +38,7 @@ export async function requireCurrentPerson(ctx: Ctx) {
 }
 
 export function canSeeAllProjects(person: Doc<"people">) {
-  return person.role === "admin" || person.role === "leadership";
+  return person.role === "admin";
 }
 
 export async function canAccessProject(ctx: Ctx, person: Doc<"people">, projectId: Id<"projects">) {
@@ -83,7 +83,7 @@ export function canManageRole(creatorRole: Doc<"people">["role"], targetRole: Do
 
 export function requireLeadership(person: Doc<"people">) {
   if (!canSeeAllProjects(person)) {
-    throw new Error("Leadership or admin access required");
+    throw new Error("Admin access required");
   }
 }
 

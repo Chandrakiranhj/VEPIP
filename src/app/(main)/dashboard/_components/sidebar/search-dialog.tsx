@@ -3,6 +3,7 @@
 import * as React from "react";
 
 import { useRouter } from "next/navigation";
+import { useQuery } from "convex/react";
 
 import { Search } from "lucide-react";
 
@@ -19,7 +20,8 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import type { NavMainItem } from "@/navigation/sidebar/sidebar-items";
-import { sidebarItems } from "@/navigation/sidebar/sidebar-items";
+import { getSidebarItemsForRole, sidebarItems } from "@/navigation/sidebar/sidebar-items";
+import { api } from "../../../../../../convex/_generated/api";
 
 type SearchItem = {
   group: string;
@@ -36,7 +38,8 @@ function getSubItemGroup(groupLabel: string | undefined, itemTitle: string) {
   return sidebarGroupLabels.has(itemTitle) ? (groupLabel ?? "Other") : itemTitle;
 }
 
-const searchItems: SearchItem[] = sidebarItems.flatMap((group) =>
+function buildSearchItems(items: typeof sidebarItems): SearchItem[] {
+  return items.flatMap((group) =>
   group.items.flatMap((item) => {
     if (item.subItems) {
       return item.subItems.map((sub) => ({
@@ -60,12 +63,11 @@ const searchItems: SearchItem[] = sidebarItems.flatMap((group) =>
     ];
   }),
 );
+}
 
 function getAvailableItems(items: SearchItem[]) {
   return items.filter((item) => !item.disabled && !item.url.includes("coming-soon"));
 }
-
-const recommendations = getAvailableItems(searchItems);
 
 function groupBy(items: SearchItem[]) {
   const groups = [...new Set(items.map((item) => item.group))];
@@ -79,6 +81,12 @@ export function SearchDialog() {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const router = useRouter();
+  const currentPerson = useQuery(api.people.current);
+  const searchItems = React.useMemo(
+    () => buildSearchItems(getSidebarItemsForRole(currentPerson?.role)),
+    [currentPerson?.role],
+  );
+  const recommendations = React.useMemo(() => getAvailableItems(searchItems), [searchItems]);
 
   React.useEffect(() => {
     const down = (e: KeyboardEvent) => {

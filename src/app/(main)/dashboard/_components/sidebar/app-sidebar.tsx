@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/sidebar";
 import { APP_CONFIG } from "@/config/app-config";
 import { rootUser } from "@/data/users";
-import { sidebarItems } from "@/navigation/sidebar/sidebar-items";
+import { getSidebarItemsForRole } from "@/navigation/sidebar/sidebar-items";
 import { usePreferencesStore } from "@/stores/preferences/preferences-provider";
 import { api } from "../../../../../../convex/_generated/api";
 
@@ -40,6 +40,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const displayUser = currentPerson 
     ? { name: currentPerson.name, email: currentPerson.email, avatar: "" }
     : rootUser;
+  const navItems = getSidebarItemsForRole(currentPerson?.role);
 
   return (
     <Sidebar {...props} variant={variant} collapsible={collapsible}>
@@ -56,7 +57,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={sidebarItems} />
+        <NavMain items={navItems} />
       </SidebarContent>
       <SidebarFooter>
         <NavUser user={displayUser} />

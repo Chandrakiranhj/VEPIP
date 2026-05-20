@@ -368,7 +368,8 @@ export default function ProjectDetailPage() {
   const project = useQuery(api.projects.getById, { projectId });
   const milestones = useQuery(api.milestones.listByProject, { projectId }) ?? [];
   const me = useQuery(api.people.current);
-  const people = useQuery(api.people.list) ?? [];
+  const canAdminister = me?.role === "admin";
+  const people = useQuery(api.people.list, canAdminister ? {} : "skip") ?? [];
   const expenses = useQuery(api.operations.listExpenses, { projectId }) ?? [];
 
   const logActivity = useMutation(api.operations.logActivity);
@@ -463,16 +464,18 @@ export default function ProjectDetailPage() {
   const am = people.find((p) => p._id === project.accountManagerId);
   const submittedExpenses = expenses.filter((e) => e.status === "submitted");
 
-  const tabs: { id: Tab; label: string; icon: typeof ClipboardList; badge?: number }[] = [
+  const tabs = ([
     { id: "deliverables", label: "Deliverables", icon: ClipboardList },
     { id: "milestones", label: "Milestones", icon: Calendar },
     { id: "activities", label: "Activities", icon: MapPinned },
     { id: "financials", label: "Financials", icon: Banknote, badge: submittedExpenses.length },
     { id: "testimonials", label: "Testimonials", icon: MessageSquare, badge: project.testimonials?.length },
     { id: "gallery", label: "Gallery", icon: ImageIcon, badge: project.gallery?.length },
-    { id: "team", label: "Team", icon: Users },
+    { id: "team", label: "Team", icon: Users, adminOnly: true },
     { id: "alerts", label: "Alerts", icon: AlertTriangle, badge: project.alerts.length },
-  ];
+  ] satisfies { id: Tab; label: string; icon: typeof ClipboardList; badge?: number; adminOnly?: boolean }[]).filter(
+    (tab) => canAdminister || !tab.adminOnly,
+  );
 
   return (
     <main className="space-y-6">
@@ -581,7 +584,9 @@ export default function ProjectDetailPage() {
             {!isEditing && (
               <>
                 <InfographicPromptDialog project={project} milestones={milestones} />
-                <Button variant="outline" size="sm" onClick={startEditing}><Edit3 className="size-4 mr-2" /> Edit</Button>
+                {canAdminister && (
+                  <Button variant="outline" size="sm" onClick={startEditing}><Edit3 className="size-4 mr-2" /> Edit</Button>
+                )}
               </>
             )}
             <Button variant="outline" size="sm" onClick={() => router.push("/projects")}>← All Projects</Button>
